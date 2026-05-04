@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Compile and run tests
+        run: |
+          SDK=$(xcrun --show-sdk-path --sdk macosx)
+          swiftc \
+            WindowLayout/Log.swift \
+            WindowLayout/Localization.swift \
+            WindowLayout/Geometry.swift \
+            WindowLayout/WindowSnapshot.swift \
+            WindowLayout/DisplayProfile.swift \
+            WindowLayout/iCloudSync.swift \
+            WindowLayout/LayoutManager.swift \
+            Tests/main.swift \
+            -sdk "$SDK" \
+            -target arm64-apple-macos13.0 \
+            -o TestRunner
+          ./TestRunner
+
+  build:
+    name: Build .app
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile universal app
+        run: |
+          SDK=$(xcrun --show-sdk-path --sdk macosx)
+          mkdir -p WindowLayout.app/Contents/MacOS WindowLayout.app/Contents/Resources
+          SOURCES=(
+            WindowLayout/Log.swift
+            WindowLayout/Localization.swift
+            WindowLayout/Geometry.swift
+            WindowLayout/WindowSnapshot.swift
+            WindowLayout/DisplayProfile.swift
+            WindowLayout/iCloudSync.swift
+            WindowLayout/LayoutManager.swift
+            WindowLayout/HotKeyManager.swift
+            WindowLayout/OnboardingWindowController.swift
+            WindowLayout/StatusBarController.swift
+            WindowLayout/AppDelegate.swift
+            WindowLayout/main.swift
+          )
+          swiftc "${SOURCES[@]}" -sdk "$SDK" -target arm64-apple-macos13.0 -o /tmp/WL_arm64
+          swiftc "${SOURCES[@]}" -sdk "$SDK" -target x86_64-apple-macos13.0 -o /tmp/WL_x86_64
+          lipo -create /tmp/WL_arm64 /tmp/WL_x86_64 -output WindowLayout.app/Contents/MacOS/WindowLayout
+          cp WindowLayout/Info.plist WindowLayout.app/Contents/
+          if [ -f WindowLayout/AppIcon.icns ]; then
+            cp WindowLayout/AppIcon.icns WindowLayout.app/Contents/Resources/
+          fi
+          codesign --force --sign - WindowLayout.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WindowLayout-app
+          path: WindowLayout.app
+          retention-days: 7

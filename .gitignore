@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# Build artifacts
+WindowLayout.app/
+WindowLayout*.app/
+/tmp/WindowLayout.app/
+WindowLayout_bin
+TestRunner
+build/
+*.dmg
+
+# Xcode (if regenerated)
+xcuserdata/
+DerivedData/
+*.xcworkspace/xcuserdata/
+
+# Swift
+.swiftpm/
+.build/
+Packages/
+Package.resolved
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local signing secrets
+*.p12
+signing_identity.local
+.signing.local
+/release/
+homebrew-tap/

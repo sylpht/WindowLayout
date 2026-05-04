@@ -1,0 +1,12 @@
+# Normalise line endings to LF in the repo, regardless of OS.
+* text=auto eol=lf
+
+# Binary files — never normalise.
+*.icns binary
+*.png binary
+*.jpg binary
+*.dmg binary
+*.p12 binary
+
+# Shell scripts must stay LF even on Windows clients.
+*.sh text eol=lf
