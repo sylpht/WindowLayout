@@ -30,14 +30,25 @@ WindowLayout is signed but not notarised (no $99/yr Apple Developer Program).
 Pick whichever install path you're comfortable with — they're listed from
 zero-friction to most-friction.
 
-### 1. Homebrew — recommended, zero warnings
+### 1. Homebrew — recommended
 
 ```bash
 brew install --cask sylpht/tap/windowlayout
 ```
 
-`brew` strips the macOS quarantine attribute, so the app just opens.
 Updates are one command: `brew upgrade --cask windowlayout`.
+
+> **macOS 15 Sequoia note**: even after brew strips the quarantine attribute,
+> Sequoia tightened the rules for apps that use the Accessibility API. On first
+> launch you'll see "Apple could not verify WindowLayout is free of malware".
+> Click **Done**, then go to **System Settings → Privacy & Security**, scroll
+> to the bottom, and click **"Open Anyway"** next to WindowLayout. After that
+> macOS remembers your choice and the app launches normally.
+>
+> Or skip the dialog with one Terminal command:
+> ```bash
+> sudo spctl --add /Applications/WindowLayout.app
+> ```
 
 ### 2. Build from source — also zero warnings
 
