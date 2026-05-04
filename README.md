@@ -9,8 +9,7 @@
 macOS has never remembered where your windows were when you reconnect your monitor.
 WindowLayout fixes this in the menu bar — pure AppKit, universal binary, no Electron.
 
-<!-- Replace with a real screenshot: -->
-<!-- ![Screenshot](docs/screenshot.png) -->
+![Welcome window](docs/welcome.png)
 
 ## Features
 
@@ -40,15 +39,19 @@ Updates are one command: `brew upgrade --cask windowlayout`.
 
 > **macOS 15 Sequoia note**: even after brew strips the quarantine attribute,
 > Sequoia tightened the rules for apps that use the Accessibility API. On first
-> launch you'll see "Apple could not verify WindowLayout is free of malware".
-> Click **Done**, then go to **System Settings → Privacy & Security**, scroll
-> to the bottom, and click **"Open Anyway"** next to WindowLayout. After that
-> macOS remembers your choice and the app launches normally.
+> launch you'll see *"Apple could not verify WindowLayout is free of malware"*
+> with a "Move to Trash" button — **don't move it to trash**. Click **Done**,
+> then:
 >
-> Or skip the dialog with one Terminal command:
-> ```bash
-> sudo spctl --add /Applications/WindowLayout.app
-> ```
+> 1. Open **System Settings → Privacy & Security**
+> 2. Scroll to the bottom — there's a yellow notice about WindowLayout being blocked
+> 3. Click **"Open Anyway"**, enter your password
+> 4. Re-launch WindowLayout, click "Open" in the confirmation dialog
+>
+> After that macOS remembers and never asks again.
+>
+> *(Apple removed `spctl --add` in Sequoia, so there's no longer a one-line
+> Terminal shortcut. Going through System Settings once is the only way.)*
 
 ### 2. Build from source — also zero warnings
 
