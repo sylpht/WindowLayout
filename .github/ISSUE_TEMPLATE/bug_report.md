@@ -1,34 +1,41 @@
 ---
-name: Bug report
-about: Something is broken or behaves unexpectedly
+name: 🐛 Bug report
+about: Something doesn't work the way you expected
 title: ''
 labels: bug
 assignees: ''
 ---
 
-**Describe the bug**
-A clear description of what is broken.
+Thanks for taking the time to report this — bug reports from real users are
+the most valuable feedback this project gets. Don't worry about formatting
+or completeness; partial reports beat no reports.
+
+**What happened?**
+<!-- One or two sentences. "I clicked X and Y didn't happen" is fine. -->
+
+**What did you expect to happen?**
+
 
 **Steps to reproduce**
-1. ...
-2. ...
-3. ...
+1.
+2.
+3.
 
-**Expected behavior**
-What you expected to happen.
+**Your setup**
+- macOS version: <!-- e.g. 15.7 — Apple menu → About This Mac -->
+- WindowLayout version: <!-- defaults read com.windowlayout.app — or just check About -->
+- Monitor setup: <!-- e.g. "MacBook Pro 14" built-in + LG UltraFine 27" over Thunderbolt" -->
+- Roughly how many saved layouts:
+- Installed via: <!-- brew / direct DMG download / built from source -->
 
-**Actual behavior**
-What actually happened.
+**Last few log lines (optional but very helpful)**
+```
+tail -30 ~/Library/Logs/WindowLayout/WindowLayout.log
+```
 
-**Environment**
-- macOS version: (e.g., 14.4.1)
-- WindowLayout version: (menu bar → About, or commit hash)
-- Monitor setup: (e.g., MacBook Pro 14" M3 + LG 27UP850 over Thunderbolt)
-- Number of saved layouts:
+**Anything else?**
+<!-- Screenshots, hunches, "this used to work in v1.1.0", whatever. -->
 
-**Logs or screenshots**
-If applicable.
+---
 
-**`profiles.json` (optional)**
-Content of `~/Library/Application Support/WindowLayout/profiles.json`.
-Strip anything sensitive first.
+*Not sure if it's a bug or expected behaviour? Open the issue anyway — I'd rather hear about it.*

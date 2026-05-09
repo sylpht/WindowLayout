@@ -11,6 +11,17 @@ WindowLayout fixes this in the menu bar — pure AppKit, universal binary, no El
 
 ![Welcome window](docs/welcome.png)
 
+> ## 🐛 Found a bug? Tell me.
+>
+> WindowLayout is solo-maintained and the most useful feedback I can get is
+> **a real user hitting a real problem**. If something doesn't work the way
+> you expect — even small things — please [open an issue](../../issues/new/choose).
+> Partial reports beat no reports. No judgement on the quality of the writeup.
+>
+> Especially valuable: monitor configurations I can't test myself
+> (Sidecar, AirPlay, mirrored displays, ultrawides, vertical orientation,
+> 3+ external monitors, etc.).
+
 ## Features
 
 - **Save and restore** window positions with one click

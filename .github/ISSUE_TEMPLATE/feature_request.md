@@ -1,6 +1,6 @@
 ---
-name: Feature request
-about: Suggest an idea
+name: 💡 Feature request
+about: Suggest an idea or improvement
 title: ''
 labels: enhancement
 assignees: ''
@@ -9,11 +9,11 @@ assignees: ''
 **The problem you're hitting**
 What situation do you face today that this feature would solve?
 
-**Proposed solution**
-What you'd like to see, concretely.
+**What you'd like instead**
+Concretely — a button, a setting, a different default, an integration.
 
-**Alternatives considered**
-Anything else you've tried or thought of.
+**Already tried / considered**
+Optional: anything else you've tried or thought of.
 
-**Extra context**
+**Anything else?**
 Screenshots, mockups, links to similar features in other apps.
