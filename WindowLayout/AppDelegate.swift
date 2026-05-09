@@ -7,7 +7,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusBarController: StatusBarController?
     private var onboardingController: OnboardingWindowController?
     private var restoreWorkItems: [DispatchWorkItem] = []
-    private var lastScreenCount = 0
+    /// Track signature, not just count — hot-swapping one display for another
+    /// keeps the count the same but produces a different signature, and the user
+    /// expects layouts for the new display to restore.
+    private var lastSignature: String = ""
     private var isFirstLaunch = false
     private var axPollTimer: Timer?
     private var lastAXState: Bool = AXIsProcessTrusted()
@@ -21,7 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         _ = LayoutManager.shared
         setupFirstLaunch()
 
-        lastScreenCount = NSScreen.screens.count
+        lastSignature = DisplayConfiguration.current().signature
         statusBarController = StatusBarController()
         observeScreenParameters()
         installDisplayReconfigurationCallback()
@@ -71,12 +74,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            let newCount = NSScreen.screens.count
-            let screenAdded = newCount > self.lastScreenCount
-            self.lastScreenCount = newCount
+            let newSig = DisplayConfiguration.current().signature
+            let signatureChanged = newSig != self.lastSignature
+            let oldSig = self.lastSignature
+            self.lastSignature = newSig
             self.statusBarController?.refreshMenu()
 
-            guard screenAdded, UserDefaults.standard.bool(forKey: "autoRestore") else { return }
+            // Trigger autoRestore on ANY signature change (connect, disconnect, hot-swap).
+            // autoRestore() itself bails out gracefully if no profile matches the new
+            // signature, so a pure resolution change with no saved layout is a free no-op.
+            guard signatureChanged, UserDefaults.standard.bool(forKey: "autoRestore") else { return }
+            Log.info("Display signature changed: \(oldSig) → \(newSig)")
             self.scheduleRestoreWithRetries()
         }
     }

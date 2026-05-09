@@ -41,6 +41,9 @@ final class iCloudSync: NSObject, NSFilePresenter {
     }
 
     static let didChangeRemotelyNotification = Notification.Name("WindowLayoutiCloudDidChange")
+    /// Posted when the iCloud file is deleted externally. Observed by LayoutManager
+    /// which re-pushes local state so the deletion doesn't strand other Macs.
+    static let didDeleteRemotelyNotification = Notification.Name("WindowLayoutiCloudDidDelete")
     static let prefKey = "iCloudSyncEnabled"
 
     private let queue = OperationQueue()
@@ -304,7 +307,9 @@ final class iCloudSync: NSObject, NSFilePresenter {
         Log.info("iCloud: remote file deleted externally — will re-push local state")
         completionHandler(nil)
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: Self.didChangeRemotelyNotification, object: nil)
+            // Distinct notification: pull-merge wouldn't help here (file is gone),
+            // we need an explicit re-push from local.
+            NotificationCenter.default.post(name: Self.didDeleteRemotelyNotification, object: nil)
         }
     }
 

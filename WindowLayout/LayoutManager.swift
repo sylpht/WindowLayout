@@ -435,6 +435,14 @@ class LayoutManager {
         ) { [weak self] _ in
             self?.purgeTombstones()
         }
+        NotificationCenter.default.addObserver(
+            forName: iCloudSync.didDeleteRemotelyNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            // Re-push local state so the deletion doesn't strand other Macs without data.
+            // Same path as kickPush — atomic mergeAndPush will recreate the iCloud file.
+            self?.kickPush()
+        }
     }
 
     /// Hard-delete any tombstones. Called when sync is disabled — tombstones can no longer
