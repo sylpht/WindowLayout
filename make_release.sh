@@ -89,12 +89,24 @@ rm -rf "$WORKDIR"
 SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
 SIZE=$(du -h "$DMG" | awk '{print $1}')
 
-# Auto-update the homebrew tap cask if it's a sibling directory.
+# Auto-update the homebrew tap cask only when the version actually bumped.
+# Rebuilding the SAME version with a different binary produces a different SHA,
+# but the cask must still point at the SHA of the DMG that's actually published
+# on GitHub Releases — overwriting it during dev rebuilds would break `brew install`
+# until a new release is uploaded.
 CASK="homebrew-tap/Casks/windowlayout.rb"
 if [ -f "$CASK" ]; then
-    sed -i '' "s/sha256 \".*\"/sha256 \"$SHA\"/" "$CASK"
-    sed -i '' "s/version \".*\"/version \"$VERSION\"/" "$CASK"
-    echo "▶ Updated $CASK with new version + SHA"
+    CASK_VERSION=$(grep -E '^\s*version ' "$CASK" | sed 's/.*"\(.*\)".*/\1/')
+    if [ "$CASK_VERSION" != "$VERSION" ]; then
+        sed -i '' "s/sha256 \".*\"/sha256 \"$SHA\"/" "$CASK"
+        sed -i '' "s/version \".*\"/version \"$VERSION\"/" "$CASK"
+        echo "▶ Updated $CASK: $CASK_VERSION → $VERSION (SHA $SHA)"
+        echo "  Don't forget to commit + push the tap, AND upload the new DMG to GitHub Release."
+    else
+        echo "▶ Cask version unchanged ($VERSION) — left alone."
+        echo "  When you're ready to ship, bump CFBundleShortVersionString in Info.plist first,"
+        echo "  then re-run this script."
+    fi
 fi
 
 echo ""
@@ -109,33 +121,19 @@ echo "  Verify signing:"
 echo "    codesign --verify --deep --strict --verbose=2 $APP"
 echo ""
 echo "  Test install:"
-echo "    open $DMG  # then drag WindowLayout to Applications"
-echo "    open /Applications/WindowLayout.app  # right-click → Open on first launch"
+echo "    open $DMG  # drag WindowLayout to Applications"
+echo "    open /Applications/WindowLayout.app  # macOS 15+: approve in System Settings → Privacy"
 echo ""
-echo "════════════════════════════════════════════════════════"
-echo "  HOMEBREW CASK SNIPPET (paste into Casks/windowlayout.rb):"
-echo "════════════════════════════════════════════════════════"
-cat <<EOF
-
-cask "windowlayout" do
-  version "$VERSION"
-  sha256 "$SHA"
-
-  url "https://github.com/sylpht/WindowLayout/releases/download/v#{version}/WindowLayout.dmg"
-  name "WindowLayout"
-  desc "Save and restore macOS window arrangements when you reconnect external displays"
-  homepage "https://github.com/sylpht/WindowLayout"
-
-  depends_on macos: ">= :ventura"
-
-  app "WindowLayout.app"
-
-  zap trash: [
-    "~/Library/Application Support/WindowLayout",
-    "~/Library/Logs/WindowLayout",
-    "~/Library/Mobile Documents/com~apple~CloudDocs/WindowLayout",
-    "~/Library/Preferences/com.windowlayout.app.plist",
-  ]
-end
-
-EOF
+if [ -f "$CASK" ]; then
+    echo "════════════════════════════════════════════════════════"
+    echo "  HOMEBREW TAP UPDATED — commit & push:"
+    echo "════════════════════════════════════════════════════════"
+    echo ""
+    echo "    cd homebrew-tap"
+    echo "    git add Casks/windowlayout.rb"
+    echo "    git commit -m \"Bump windowlayout to v$VERSION\""
+    echo "    git push"
+    echo ""
+    echo "  Then create the GitHub Release:"
+    echo "    gh release create v$VERSION $DMG --title \"v$VERSION\" --notes \"…\""
+fi
