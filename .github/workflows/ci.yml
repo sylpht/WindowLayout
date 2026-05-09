@@ -8,7 +8,7 @@ on:
 jobs:
   test:
     name: Unit tests
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +37,7 @@ jobs:
 
   build:
     name: Build .app
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -66,7 +66,13 @@ jobs:
           if [ -f WindowLayout/AppIcon.icns ]; then
             cp WindowLayout/AppIcon.icns WindowLayout.app/Contents/Resources/
           fi
-          codesign --force --sign - WindowLayout.app
+          # Match release signing settings (Hardened Runtime + entitlements) so CI catches
+          # any signing-related regressions before they hit make_release.sh.
+          codesign --force --deep --sign - \
+            --options runtime \
+            --entitlements WindowLayout/WindowLayout.entitlements \
+            WindowLayout.app
+          codesign --verify --deep --strict --verbose=2 WindowLayout.app
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

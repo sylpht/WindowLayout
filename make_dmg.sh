@@ -1,6 +1,10 @@
 #!/bin/bash
-# Build a distributable .dmg with drag-to-Applications UX.
-# Requires a signed .app at WindowLayout.app (run ./build.sh first).
+# Build a quick .dmg from your local dev build (Apple Development signed).
+# Useful for sharing a test build with a teammate on the same machine setup.
+#
+# For PUBLIC distribution use ./make_release.sh — it produces an ad-hoc-signed
+# DMG that survives Gatekeeper download checks. Apple Development-signed DMGs
+# trigger the "App is damaged" warning when downloaded by anyone else.
 
 set -e
 cd "$(dirname "$0")"
