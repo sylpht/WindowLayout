@@ -10,7 +10,9 @@ struct WindowSnapshot: Codable {
 }
 
 struct LayoutProfile: Codable, Identifiable {
-    var id: UUID
+    /// Identity — never mutated after creation. `let` enforces this so a
+    /// stray `=` assignment can't break sync (which keys everything on id).
+    let id: UUID
     let displaySignature: String
     var name: String
     let capturedAt: Date
