@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.2] — 2026-05-10
 
 ### Added
 - **Privacy mode** — opt-in toggle "Don't save window titles" in the menu.
@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`iCloudSync.shared`, `LayoutManager.shared`, `HotKeyManager.shared`,
   `iCloudSync.dateFormatter`). No runtime impact; would be hard errors
   in Swift 6 strict-concurrency mode
+
+### Fixed
+- Chinese localisation: replaced 2 western-punctuation slips with proper
+  fullwidth characters (`,` → `，`, `:` → `：`); rephrased "无运行中" to
+  "暂无运行的应用" (less telegraphic)
+
+### Community
+- README now has a prominent "Found a bug? Tell me." block under the hero
+  with examples of monitor configurations the maintainer can't test alone
+- Friendlier issue templates with optional fields and "partial reports beat
+  no reports" wording
+- GitHub Discussions enabled; pinned issue #1 invites feedback explicitly
 
 ## [1.1.1] — 2026-05-09
 
