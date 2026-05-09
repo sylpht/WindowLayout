@@ -533,6 +533,43 @@ func waitForFileMtime(_ file: URL, after since: Date, deadline: TimeInterval = 2
     }
 }
 
+// ── 20c ───────────────────────────────────────────────────────
+test("iCloud pull — refuses files larger than 5 MB (DoS guard)") {
+    let folder = sharediCloudFolder()
+    let file = folder.appendingPathComponent("profiles.json")
+    // Write a 6 MB file of garbage where the iCloud sync file should be.
+    let bigData = Data(repeating: UInt8(ascii: "X"), count: 6 * 1024 * 1024)
+    try bigData.write(to: file)
+    let sync = iCloudSync(syncFolderURL: folder, alwaysEnabled: true)
+    let pulled = sync.pull()
+    return pulled == nil  // refused, not parsed
+}
+
+// ── 20d ───────────────────────────────────────────────────────
+test("iCloud pull — corrupt JSON returns nil instead of crashing") {
+    let folder = sharediCloudFolder()
+    let file = folder.appendingPathComponent("profiles.json")
+    try "{not valid json at all".data(using: .utf8)!.write(to: file)
+    let sync = iCloudSync(syncFolderURL: folder, alwaysEnabled: true)
+    let pulled = sync.pull()
+    return pulled == nil
+}
+
+// ── 20e ───────────────────────────────────────────────────────
+test("iCloud mergeAndPush — file written with mode 600 (privacy)") {
+    let folder = sharediCloudFolder()
+    let file = folder.appendingPathComponent("profiles.json")
+    let sync = iCloudSync(syncFolderURL: folder, alwaysEnabled: true)
+    let p = LayoutProfile(
+        id: UUID(), displaySignature: "sig", name: "test",
+        capturedAt: Date(), windows: [], screenFrames: []
+    )
+    sync.mergeAndPush(localSnapshot: [p])
+    let attrs = try FileManager.default.attributesOfItem(atPath: file.path)
+    let perms = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
+    return perms == 0o600
+}
+
 // ── 21 ────────────────────────────────────────────────────────
 test("Two-Mac: sync push then pull preserves profile (file-level)") {
     let folder = sharediCloudFolder()
