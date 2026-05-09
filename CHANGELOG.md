@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `flashIconSuccess` race — rapid back-to-back flashes (save+restore in <0.7s)
+  could leave the menu bar icon stuck on the checkmark; now uses a generation
+  counter so only the latest scheduled revert fires
+- `revealSyncFolder` silently failed when the iCloud folder didn't exist
+  (sync just disabled / folder manually deleted) — now creates on demand so
+  Finder always opens
+- Menu-click save / restore now flash the icon for visual feedback (was
+  inconsistent with the hotkey path which already did)
+- `saveCurrentLayout` refuses to save layouts with zero captured windows
+  (AX denied or all apps excluded) — surfaces a clear alert instead of
+  silently creating a non-restorable profile
+- Hotkey ⌘⇧⌥S no longer flashes "success" on empty capture
+- AutoRestore now triggers on display **signature** change, not just count
+  change — hot-swapping one external monitor for another (count unchanged)
+  was previously missed
+- iCloud file deleted externally (Finder / another Mac) now triggers a
+  re-push of local state instead of leaving other Macs stranded with empty data
+- `make_release.sh` no longer corrupts the homebrew cask SHA on dev rebuilds —
+  the cask only updates when CFBundleShortVersionString actually bumps
+- CI workflow: macos-15 runner + match release signing (Hardened Runtime
+  + entitlements + strict verify) so signing regressions surface in CI
+
 ## [1.1.0] — 2026-04-25
 
 ### Added
