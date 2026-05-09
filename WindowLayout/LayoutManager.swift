@@ -59,6 +59,12 @@ class LayoutManager {
         guard !screens.isEmpty else { return nil }
 
         let windows = captureWindows(screens: screens)
+        // Refuse to save empty layouts — the user would later "restore" it and nothing
+        // happens, with no clue why. Returning nil lets the caller surface a useful error.
+        guard !windows.isEmpty else {
+            Log.warn("saveCurrentLayout: refusing to save empty layout '\(name)' — captureWindows returned 0 windows (AX denied or all apps excluded?)")
+            return nil
+        }
         let profile = LayoutProfile(
             id: UUID(),
             displaySignature: config.signature,

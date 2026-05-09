@@ -424,9 +424,23 @@ class StatusBarController: NSObject, NSMenuDelegate {
         if alert.runModal() == .alertFirstButtonReturn {
             let name = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let finalName = name.isEmpty ? LayoutManager.shared.suggestedNameForNewLayout() : name
-            LayoutManager.shared.saveCurrentLayout(name: finalName)
-            flashIconSuccess()
-            refreshMenu()
+            if LayoutManager.shared.saveCurrentLayout(name: finalName) != nil {
+                flashIconSuccess()
+                refreshMenu()
+            } else {
+                // Empty capture — usually means AX permission missing or every app excluded.
+                let warn = NSAlert()
+                warn.messageText = L.s("Не удалось сохранить расположение",
+                                       "Couldn't save the layout",
+                                       "无法保存布局")
+                warn.informativeText = L.s(
+                    "Не получилось захватить ни одного окна. Проверь, что Универсальный доступ разрешён в Системных настройках, и что не все приложения исключены.",
+                    "Couldn't capture any windows. Check that Accessibility access is granted in System Settings and that not every app is on the exclusion list.",
+                    "未能捕获任何窗口。请检查系统设置中是否已授予辅助功能权限,以及是否所有应用都被排除了。"
+                )
+                warn.alertStyle = .warning
+                warn.runModal()
+            }
         }
     }
 
