@@ -127,7 +127,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
         let hint = NSMenuItem(
             title: L.s("Хоткеи: ⌘⇧⌥S — сохранить, ⌘⇧⌥R — восстановить",
                        "Hotkeys: ⌘⇧⌥S save · ⌘⇧⌥R restore",
-                       "快捷键:⌘⇧⌥S 保存 · ⌘⇧⌥R 还原"),
+                       "快捷键：⌘⇧⌥S 保存 · ⌘⇧⌥R 还原"),
             action: nil, keyEquivalent: ""
         )
         hint.isEnabled = false
@@ -306,7 +306,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
             .sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
 
         if apps.isEmpty {
-            let empty = NSMenuItem(title: L.s("Нет запущенных", "None running", "无运行中"),
+            let empty = NSMenuItem(title: L.s("Нет запущенных", "None running", "暂无运行的应用"),
                                    action: nil, keyEquivalent: "")
             empty.isEnabled = false
             sub.addItem(empty)

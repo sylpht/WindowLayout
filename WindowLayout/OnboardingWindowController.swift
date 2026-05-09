@@ -142,7 +142,7 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         let sub = NSTextField(wrappingLabelWithString: L.s(
             "Расставил окна один раз — они возвращаются сами, как только подключишь тот же монитор.",
             "Arrange once — your windows come back the same way every time you reconnect.",
-            "布置一次,重连显示器时窗口自动回到原位。"
+            "布置一次，重连显示器时窗口自动回到原位。"
         ))
         sub.font = .systemFont(ofSize: 13)
         sub.textColor = .secondaryLabelColor
