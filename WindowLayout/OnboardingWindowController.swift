@@ -479,7 +479,7 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Esc closes the window (NSWindowController routes cancelOperation: here).
-    @objc func cancelOperation(_ sender: Any?) {
+    @objc override func cancelOperation(_ sender: Any?) {
         window?.close()
     }
 
