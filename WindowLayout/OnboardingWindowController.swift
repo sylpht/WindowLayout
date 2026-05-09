@@ -478,6 +478,11 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         window?.close()
     }
 
+    /// Esc closes the window (NSWindowController routes cancelOperation: here).
+    @objc func cancelOperation(_ sender: Any?) {
+        window?.close()
+    }
+
     @objc private func changeLanguage(_ sender: NSPopUpButton) {
         let idx = sender.indexOfSelectedItem
         guard idx >= 0 && idx < L.Lang.allCases.count else { return }

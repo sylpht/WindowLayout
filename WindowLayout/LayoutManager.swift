@@ -83,6 +83,14 @@ class LayoutManager {
     /// Captures current state to a hidden auto-snapshot for the active display signature.
     /// Used as a safety net when the user forgets to save before disconnecting.
     func captureAutoSnapshot() {
+        // When Stage Manager is on it parks inactive-app windows in an off-screen sidebar
+        // strip; capturing those positions would save garbage that, on restore, would
+        // place windows at the SM-parked locations. Skip silently — user-saved layouts
+        // (manual Save) still work because the user is making an explicit choice.
+        if WindowEnvironment.isStageManagerActive {
+            Log.info("captureAutoSnapshot skipped: Stage Manager is active")
+            return
+        }
         let config = DisplayConfiguration.current()
         let screens = NSScreen.screens.map(\.frame)
         guard !screens.isEmpty else { return }
