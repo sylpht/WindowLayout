@@ -424,6 +424,25 @@ class StatusBarController: NSObject, NSMenuDelegate {
         if alert.runModal() == .alertFirstButtonReturn {
             let name = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let finalName = name.isEmpty ? LayoutManager.shared.suggestedNameForNewLayout() : name
+
+            // Warn if Stage Manager is active — capturing parked sidebar positions would
+            // save garbage. User can still proceed (their explicit choice).
+            if WindowEnvironment.isStageManagerActive {
+                let warn = NSAlert()
+                warn.messageText = L.s("Stage Manager активен",
+                                       "Stage Manager is active",
+                                       "Stage Manager 已开启")
+                warn.informativeText = L.s(
+                    "Окна неактивных приложений сейчас в боковой панели Stage Manager. Сохранённое расположение запомнит их именно там, и при восстановлении окна окажутся в той же боковой парковке. Выключи Stage Manager перед сохранением.",
+                    "Inactive apps' windows are currently parked in Stage Manager's sidebar. The saved layout will record those parked positions, and restoring will put windows back in the sidebar. Turn off Stage Manager first.",
+                    "非活动应用的窗口当前位于 Stage Manager 侧边栏中。保存的布局将记录这些位置,还原时窗口会回到侧边栏。请先关闭 Stage Manager。"
+                )
+                warn.alertStyle = .warning
+                warn.addButton(withTitle: L.s("Всё равно сохранить", "Save Anyway", "仍然保存"))
+                warn.addButton(withTitle: L.s("Отмена", "Cancel", "取消"))
+                if warn.runModal() != .alertFirstButtonReturn { return }
+            }
+
             if LayoutManager.shared.saveCurrentLayout(name: finalName) != nil {
                 flashIconSuccess()
                 refreshMenu()
