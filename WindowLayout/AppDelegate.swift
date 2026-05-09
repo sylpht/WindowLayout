@@ -152,9 +152,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             modifiers: modCmdShiftOpt
         ) { [weak self] in
             let name = LayoutManager.shared.suggestedNameForNewLayout()
-            LayoutManager.shared.saveCurrentLayout(name: name)
-            self?.statusBarController?.flashIconSuccess()
-            self?.statusBarController?.refreshMenu()
+            // saveCurrentLayout returns nil if no windows could be captured
+            // (AX denied, no apps, all excluded). Only flash on actual save.
+            if LayoutManager.shared.saveCurrentLayout(name: name) != nil {
+                self?.statusBarController?.flashIconSuccess()
+                self?.statusBarController?.refreshMenu()
+            } else {
+                Log.warn("Hotkey ⌘⇧⌥S — save was a no-op (no windows captured)")
+            }
         }
 
         // ⌘⇧⌥R → restore most-recent layout for current setup
