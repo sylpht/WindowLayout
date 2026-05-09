@@ -155,6 +155,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Global hotkeys
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Drain any in-flight iCloud push before termination — saving a layout then
+        // quitting immediately could otherwise lose the push if the process gets killed
+        // before the async closure runs. macOS gives apps ~5s here, so a short barrier
+        // is safe.
+        iCloudSync.shared.syncDispatchQueue.sync { }
         // Explicitly unregister the file presenter so NSFileCoordinator's process-wide
         // registry doesn't keep a dangling reference (mostly cleanliness — process death
         // also clears it, but defensive against future in-process recycling).
