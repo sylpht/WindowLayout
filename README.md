@@ -37,6 +37,14 @@ brew install --cask sylpht/tap/windowlayout
 
 Updates are one command: `brew upgrade --cask windowlayout`.
 
+> **Accessibility permission resets after every `brew upgrade`**
+> Because WindowLayout uses ad-hoc signing (no $99/yr Apple Developer Program),
+> the binary's identity changes on every release. macOS treats it as a "new" app
+> and revokes the previously granted Accessibility permission. After each
+> `brew upgrade --cask windowlayout` go to **System Settings → Privacy & Security
+> → Accessibility** and re-toggle WindowLayout ON. (Your saved layouts survive
+> the upgrade — only the OS-level permission needs re-granting.)
+>
 > **macOS 15 Sequoia note**: even after brew strips the quarantine attribute,
 > Sequoia tightened the rules for apps that use the Accessibility API. On first
 > launch you'll see *"Apple could not verify WindowLayout is free of malware"*
