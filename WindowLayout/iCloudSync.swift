@@ -46,7 +46,15 @@ final class iCloudSync: NSObject, NSFilePresenter {
     static let didDeleteRemotelyNotification = Notification.Name("WindowLayoutiCloudDidDelete")
     static let prefKey = "iCloudSyncEnabled"
 
-    private let queue = OperationQueue()
+    /// Queue for NSFilePresenter callbacks. Named so it shows up identifiably in
+    /// Instruments / sample dumps.
+    private let queue: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "com.windowlayout.iCloudSync.presenter"
+        q.qualityOfService = .utility
+        q.maxConcurrentOperationCount = 1  // serialize callbacks; we don't reorder events
+        return q
+    }()
     private var watching = false
     /// Serial queue for push/pull. Ensures two rapid saves don't get reordered on the
     /// global concurrent .utility queue (which would let an older snapshot overwrite a
@@ -68,7 +76,6 @@ final class iCloudSync: NSObject, NSFilePresenter {
         self.injectedFolder = syncFolderURL
         self.alwaysEnabled = alwaysEnabled
         super.init()
-        queue.qualityOfService = .utility
         // Test instances never start watching — tests poll directly via push/pull.
         if !alwaysEnabled, enabled { startWatching() }
     }
@@ -138,6 +145,9 @@ final class iCloudSync: NSObject, NSFilePresenter {
         guard watching else { return }
         NSFileCoordinator.removeFilePresenter(self)
         queue.cancelAllOperations()
+        // Clear stale "synced N ago" so re-enabling later doesn't briefly show
+        // an irrelevant old timestamp before the first new sync lands.
+        syncStateLock.withLock { _lastSyncedAt = nil }
         watching = false
     }
 
