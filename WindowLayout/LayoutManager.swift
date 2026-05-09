@@ -182,8 +182,16 @@ class LayoutManager {
     }
 
     func suggestedNameForNewLayout() -> String {
-        let count = profilesForCurrentSetup().count
-        return L.s("Расположение \(count + 1)", "Layout \(count + 1)", "布局 \(count + 1)")
+        // Find the next free number by scanning existing names, not by counting profiles.
+        // Counting breaks when a middle layout is deleted: count=2 with profiles
+        // ["Layout 1", "Layout 3"] would suggest "Layout 3" — colliding with the existing one.
+        let existing = profilesForCurrentSetup().map(\.name)
+        var n = 1
+        let template: (Int) -> String = {
+            L.s("Расположение \($0)", "Layout \($0)", "布局 \($0)")
+        }
+        while existing.contains(template(n)) { n += 1 }
+        return template(n)
     }
 
     // MARK: - Capture

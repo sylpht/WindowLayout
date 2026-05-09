@@ -190,6 +190,23 @@ test("LayoutManager — rename & delete & profile() lookup") {
     return mgr.profile(id: id) == nil && mgr.allProfiles.isEmpty
 }
 
+// ── 10a ───────────────────────────────────────────────────────
+test("suggestedNameForNewLayout — gap-aware (no collision after middle delete)") {
+    L.userPreference = .en  // deterministic English template
+    let mgr = LayoutManager(storageURL: tempStorageURL())
+    let sig = DisplayConfiguration.current().signature
+    func p(_ name: String) -> LayoutProfile {
+        LayoutProfile(id: UUID(), displaySignature: sig, name: name,
+                      capturedAt: Date(), windows: [], screenFrames: [])
+    }
+    mgr.addProfile(p("Layout 1"))
+    mgr.addProfile(p("Layout 3"))
+    // Two profiles named "Layout 1" and "Layout 3" → next free is "Layout 2".
+    // Old (count+1) implementation would have suggested "Layout 3" — collision.
+    let suggested = mgr.suggestedNameForNewLayout()
+    return suggested == "Layout 2"
+}
+
 // ── 11 ────────────────────────────────────────────────────────
 test("LayoutProfile — decodes old JSON without isAutoSnapshot field") {
     let oldJSON = """
