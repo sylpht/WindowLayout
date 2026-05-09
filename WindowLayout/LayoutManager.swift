@@ -248,7 +248,10 @@ class LayoutManager {
             guard let windows = axWindows(of: axApp) else { continue }
             for window in windows {
                 guard !isMinimized(window), !isFullscreen(window) else { continue }
-                let title = axTitle(of: window)
+                // Truncate live title to the same length we used at save time, otherwise
+                // a > 64-char document title (e.g. "Document - lots of words…") never matches
+                // the truncated saved version and the window never gets restored.
+                let title = String(axTitle(of: window).prefix(Self.maxTitleChars))
                 guard let idx = pool.firstIndex(where: { $0.windowTitle == title }) else { continue }
                 let s = pool.remove(at: idx)
                 let si = min(s.screenIndex, currentScreens.count - 1)
