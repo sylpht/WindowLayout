@@ -95,13 +95,14 @@ SIZE=$(du -h "$DMG" | awk '{print $1}')
 # on GitHub Releases — overwriting it during dev rebuilds would break `brew install`
 # until a new release is uploaded.
 CASK="homebrew-tap/Casks/windowlayout.rb"
+CASK_BUMPED=0
 if [ -f "$CASK" ]; then
     CASK_VERSION=$(grep -E '^\s*version ' "$CASK" | sed 's/.*"\(.*\)".*/\1/')
     if [ "$CASK_VERSION" != "$VERSION" ]; then
         sed -i '' "s/sha256 \".*\"/sha256 \"$SHA\"/" "$CASK"
         sed -i '' "s/version \".*\"/version \"$VERSION\"/" "$CASK"
         echo "▶ Updated $CASK: $CASK_VERSION → $VERSION (SHA $SHA)"
-        echo "  Don't forget to commit + push the tap, AND upload the new DMG to GitHub Release."
+        CASK_BUMPED=1
     else
         echo "▶ Cask version unchanged ($VERSION) — left alone."
         echo "  When you're ready to ship, bump CFBundleShortVersionString in Info.plist first,"
@@ -124,16 +125,19 @@ echo "  Test install:"
 echo "    open $DMG  # drag WindowLayout to Applications"
 echo "    open /Applications/WindowLayout.app  # macOS 15+: approve in System Settings → Privacy"
 echo ""
-if [ -f "$CASK" ]; then
+if [ "$CASK_BUMPED" = "1" ]; then
     echo "════════════════════════════════════════════════════════"
-    echo "  HOMEBREW TAP UPDATED — commit & push:"
+    echo "  RELEASE CHECKLIST — version bumped to v$VERSION:"
     echo "════════════════════════════════════════════════════════"
     echo ""
-    echo "    cd homebrew-tap"
-    echo "    git add Casks/windowlayout.rb"
-    echo "    git commit -m \"Bump windowlayout to v$VERSION\""
-    echo "    git push"
+    echo "  1. Upload DMG to GitHub Release (the cask points at GitHub):"
+    echo "     gh release create v$VERSION $DMG --title \"v$VERSION\" --notes \"…\""
     echo ""
-    echo "  Then create the GitHub Release:"
-    echo "    gh release create v$VERSION $DMG --title \"v$VERSION\" --notes \"…\""
+    echo "  2. Push the tap so 'brew upgrade' picks it up:"
+    echo "     cd homebrew-tap && git add Casks/windowlayout.rb \\"
+    echo "       && git commit -m \"Bump windowlayout to v$VERSION\" \\"
+    echo "       && git push"
+    echo ""
+    echo "  Order matters: GitHub Release must exist BEFORE users 'brew install',"
+    echo "  otherwise the cask URL 404s."
 fi
