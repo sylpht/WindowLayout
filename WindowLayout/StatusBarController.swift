@@ -41,6 +41,10 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     /// Briefly replace the menu bar icon with a checkmark as visual confirmation.
+    /// Uses a generation counter so rapid back-to-back flashes don't leave the icon
+    /// stuck — only the LATEST scheduled revert actually fires.
+    private var flashGeneration: Int = 0
+
     func flashIconSuccess() {
         guard let button = statusItem.button else { return }
         let cfg = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
@@ -50,8 +54,10 @@ class StatusBarController: NSObject, NSMenuDelegate {
         check?.isTemplate = true
         button.image = check
 
+        flashGeneration &+= 1
+        let myGen = flashGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
-            guard let self else { return }
+            guard let self, self.flashGeneration == myGen else { return }
             let img = self.defaultIconImage()
             img?.isTemplate = true
             self.statusItem.button?.image = img
@@ -419,6 +425,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
             let name = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let finalName = name.isEmpty ? LayoutManager.shared.suggestedNameForNewLayout() : name
             LayoutManager.shared.saveCurrentLayout(name: finalName)
+            flashIconSuccess()
             refreshMenu()
         }
     }
@@ -427,6 +434,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
         guard let idString = sender.representedObject as? String,
               let id = UUID(uuidString: idString) else { return }
         LayoutManager.shared.restoreLayout(id: id)
+        flashIconSuccess()
     }
 
     @objc private func deleteProfile(_ sender: NSMenuItem) {
@@ -525,7 +533,8 @@ class StatusBarController: NSObject, NSMenuDelegate {
             // Visual confirmation — same flash as save/restore so user knows it worked.
             flashIconSuccess()
             // If folder was just created, reveal it so the user can see it exists.
-            if !wasEnabled, let folder = iCloudSync.shared.syncFolderURL {
+            if !wasEnabled, let folder = iCloudSync.shared.syncFolderURL,
+               FileManager.default.fileExists(atPath: folder.path) {
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
             }
         }
@@ -534,6 +543,10 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func revealSyncFolder() {
         guard let folder = iCloudSync.shared.syncFolderURL else { return }
+        // Folder may be missing if sync was just disabled and macOS hasn't created it yet,
+        // or if the user manually deleted it. Create on demand so Finder always opens
+        // *something* and the user gets visible feedback.
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         NSWorkspace.shared.activateFileViewerSelecting([folder])
     }
 
