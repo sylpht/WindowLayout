@@ -448,7 +448,11 @@ class StatusBarController: NSObject, NSMenuDelegate {
         guard let idString = sender.representedObject as? String,
               let id = UUID(uuidString: idString) else { return }
         LayoutManager.shared.restoreLayout(id: id)
-        flashIconSuccess()
+        // Same gate as the hotkey path — don't claim success when AX is denied or
+        // every captured app has since quit (nothing to move).
+        if LayoutManager.shared.lastApplyMovedWindows {
+            flashIconSuccess()
+        }
     }
 
     @objc private func deleteProfile(_ sender: NSMenuItem) {

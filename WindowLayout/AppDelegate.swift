@@ -176,7 +176,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             modifiers: modCmdShiftOpt
         ) { [weak self] in
             LayoutManager.shared.autoRestore()
-            self?.statusBarController?.flashIconSuccess()
+            // Only flash if apply actually moved something (AX granted, profile matched).
+            if LayoutManager.shared.lastApplyMovedWindows {
+                self?.statusBarController?.flashIconSuccess()
+            } else {
+                Log.warn("Hotkey ⌘⇧⌥R — restore was a no-op (AX denied / Stage Manager active / no profile)")
+            }
         }
     }
 }

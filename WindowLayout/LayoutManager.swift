@@ -240,7 +240,18 @@ class LayoutManager {
 
     // MARK: - Apply
 
+    /// True if the most recent apply() call actually moved at least one window.
+    /// Restore paths use this to distinguish "did work" from "silently no-op'd".
+    private(set) var lastApplyMovedWindows = false
+
     private func apply(profile: LayoutProfile) {
+        lastApplyMovedWindows = false
+        // Restoring requires AX. Without it AXUIElement* calls silently fail, the windows
+        // don't move, but the caller flashes success — misleading. Bail explicitly.
+        guard AXIsProcessTrusted() else {
+            Log.warn("apply: skipped — Accessibility permission not granted")
+            return
+        }
         let currentScreens = NSScreen.screens.map(\.frame)
         guard !currentScreens.isEmpty else { return }
         let excluded = excludedBundleIDs
@@ -268,6 +279,7 @@ class LayoutManager {
                     into: currentScreens[si]
                 )
                 setFrame(of: window, to: target)
+                lastApplyMovedWindows = true
             }
         }
     }
