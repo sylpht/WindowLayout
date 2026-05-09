@@ -6,6 +6,10 @@ import ServiceManagement
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusBarController: StatusBarController?
     private var onboardingController: OnboardingWindowController?
+    /// Observer token for the onboarding window's willClose. Stored so we can
+    /// remove the previous observer before showOnboarding() registers a new one
+    /// — otherwise each language switch leaks an observer bound to a dead window.
+    private var onboardingCloseObserver: NSObjectProtocol?
     private var restoreWorkItems: [DispatchWorkItem] = []
     /// Track signature, not just count — hot-swapping one display for another
     /// keeps the count the same but produces a different signature, and the user
@@ -42,10 +46,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showOnboarding() {
+        // Remove any previous observer before adding a new one — happens on every
+        // language switch, which closes & reopens the window.
+        if let prev = onboardingCloseObserver {
+            NotificationCenter.default.removeObserver(prev)
+        }
+
         let wc = OnboardingWindowController()
         onboardingController = wc
 
-        NotificationCenter.default.addObserver(
+        onboardingCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: wc.window,
             queue: .main
