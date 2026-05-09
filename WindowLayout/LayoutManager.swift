@@ -2,7 +2,10 @@ import AppKit
 import ApplicationServices
 
 class LayoutManager {
-    static let shared: LayoutManager = {
+    /// Singleton. `profiles` mutated only from main thread (per convention used by
+    /// AppDelegate / StatusBarController / observer dispatchers). Background queue
+    /// access (sync push closure) takes a snapshot first, so no shared mutation race.
+    nonisolated(unsafe) static let shared: LayoutManager = {
         let mgr = LayoutManager(storageURL: defaultStorageURL(), sync: iCloudSync.shared)
         mgr.subscribeToRemoteChanges()
         return mgr

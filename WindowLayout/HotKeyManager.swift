@@ -5,7 +5,10 @@ import Carbon.HIToolbox
 /// keyboard shortcuts. Carbon is deprecated but still works and is the only
 /// sanctioned way to do this without Accessibility for input-capture.
 final class HotKeyManager {
-    static let shared = HotKeyManager()
+    // Singleton. `handlers` / `refs` mutated only from main thread (register/unregister).
+    // Carbon callback reads `handlers` from a Carbon event-dispatch context that lands
+    // on main, so no real race in practice.
+    nonisolated(unsafe) static let shared = HotKeyManager()
 
     private var handlers: [UInt32: () -> Void] = [:]
     private var refs: [UInt32: EventHotKeyRef] = [:]

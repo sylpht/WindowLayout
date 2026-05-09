@@ -5,12 +5,15 @@ import Foundation
 /// actual upload/download via finderd. We only read/write a JSON file and watch for remote changes.
 final class iCloudSync: NSObject, NSFilePresenter {
 
-    static let shared = iCloudSync()
+    // Singleton. Mutable state inside (watching, _lastSyncedAt, queues) is guarded
+    // by syncStateLock or by the dispatch queues themselves — see those declarations.
+    nonisolated(unsafe) static let shared = iCloudSync()
 
     /// ISO8601 with fractional seconds. The default `.iso8601` strategy strips
     /// sub-second precision, which makes two renames within the same second tie
     /// at merge time (and the `>=` tie-break leaves a divergence between Macs).
-    static let dateFormatter: ISO8601DateFormatter = {
+    /// ISO8601DateFormatter is documented thread-safe, so nonisolated(unsafe) is correct.
+    nonisolated(unsafe) static let dateFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
