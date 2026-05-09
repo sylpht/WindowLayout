@@ -144,6 +144,22 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(makeSyncMenuItem())
 
+        // Privacy toggle — opt-in, hides window titles in saved/synced layouts.
+        let privacy = action(
+            L.s("Не сохранять заголовки окон",
+                "Don't save window titles",
+                "不保存窗口标题"),
+            symbol: "eye.slash",
+            sel: #selector(togglePrivacyHideTitles)
+        )
+        privacy.state = UserDefaults.standard.bool(forKey: LayoutManager.privacyHideTitlesPrefKey) ? .on : .off
+        privacy.toolTip = L.s(
+            "Окна одного приложения будут различаться по порядку, а не по тайтлу.",
+            "Windows of the same app will be matched by order instead of title.",
+            "同一应用的窗口将按顺序而非标题匹配。"
+        )
+        menu.addItem(privacy)
+
         // Excluded apps submenu (only when we have AX — otherwise useless)
         if isAccessible {
             menu.addItem(makeExcludedAppsMenu())
@@ -514,6 +530,12 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func toggleAutoRestore() {
         let key = "autoRestore"
+        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
+        refreshMenu()
+    }
+
+    @objc private func togglePrivacyHideTitles() {
+        let key = LayoutManager.privacyHideTitlesPrefKey
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
         refreshMenu()
     }

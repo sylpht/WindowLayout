@@ -190,6 +190,12 @@ test("LayoutManager — rename & delete & profile() lookup") {
     return mgr.profile(id: id) == nil && mgr.allProfiles.isEmpty
 }
 
+// ── 10aa ──────────────────────────────────────────────────────
+test("Privacy mode pref defaults off (backward-compat)") {
+    UserDefaults.standard.removeObject(forKey: LayoutManager.privacyHideTitlesPrefKey)
+    return UserDefaults.standard.bool(forKey: LayoutManager.privacyHideTitlesPrefKey) == false
+}
+
 // ── 10b ───────────────────────────────────────────────────────
 test("autoRestore — no-op when no profile matches signature, doesn't crash") {
     let mgr = LayoutManager(storageURL: tempStorageURL())

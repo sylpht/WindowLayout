@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Privacy mode** — opt-in toggle "Don't save window titles" in the menu.
+  When on, captured layouts store empty titles instead of (truncated) live
+  ones. Restore falls back to ordinal matching within an app — slightly less
+  precise for multi-window apps, but the saved profile reveals nothing about
+  your documents / tabs / emails. Default off (backward-compat).
+- `RELEASE.md` — step-by-step release procedure including a 30-second manual
+  smoke test that catches the class of bugs unit tests miss (the actual
+  capture-and-restore path on real windows).
+
 ### Changed
 - Swift 6 future-proofing: `nonisolated(unsafe)` on singleton statics
   (`iCloudSync.shared`, `LayoutManager.shared`, `HotKeyManager.shared`,

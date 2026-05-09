@@ -216,6 +216,15 @@ class LayoutManager {
     /// distinguish multiple windows of the same app — 64 chars is plenty.
     private static let maxTitleChars = 64
 
+    /// Privacy mode. When true, captured layouts store empty window titles instead of
+    /// the (truncated) live title. Restore matches by ordinal position within an app
+    /// instead of by title — slightly less precise for multi-window apps, but the
+    /// stored profile reveals nothing about your documents / tabs / emails.
+    static let privacyHideTitlesPrefKey = "privacyHideTitles"
+    private var privacyHideTitles: Bool {
+        UserDefaults.standard.bool(forKey: Self.privacyHideTitlesPrefKey)
+    }
+
     private func captureWindows(screens: [CGRect]) -> [WindowSnapshot] {
         let excluded = excludedBundleIDs
         var result: [WindowSnapshot] = []
@@ -228,7 +237,11 @@ class LayoutManager {
                       !isFullscreen(window),
                       let frame = axFrame(of: window),
                       frame.width > 50, frame.height > 50 else { continue }
-                let title = String(axTitle(of: window).prefix(Self.maxTitleChars))
+                // Privacy mode: store empty title. Restore will match by ordinal
+                // position within the app instead.
+                let title = privacyHideTitles
+                    ? ""
+                    : String(axTitle(of: window).prefix(Self.maxTitleChars))
                 // Pick the screen containing the window's CENTER, not the first intersecting one.
                 // Stops a window straddling two monitors from being assigned to whichever screen
                 // happens to be first in NSScreen.screens (order varies between launches).
@@ -282,8 +295,13 @@ class LayoutManager {
                 // a > 64-char document title (e.g. "Document - lots of words…") never matches
                 // the truncated saved version and the window never gets restored.
                 let title = String(axTitle(of: window).prefix(Self.maxTitleChars))
-                guard let idx = pool.firstIndex(where: { $0.windowTitle == title }) else { continue }
-                let s = pool.remove(at: idx)
+                // Title match preferred. If the saved snapshot has an empty title (privacy
+                // mode at save time), or no title match exists, fall back to ordinal —
+                // first remaining empty-title snapshot in the pool.
+                let idx = pool.firstIndex(where: { !$0.windowTitle.isEmpty && $0.windowTitle == title })
+                    ?? pool.firstIndex(where: { $0.windowTitle.isEmpty })
+                guard let i = idx else { continue }
+                let s = pool.remove(at: i)
                 let si = min(s.screenIndex, currentScreens.count - 1)
                 let target = Geometry.clamp(
                     Geometry.denormalize(s.normalizedFrame, in: currentScreens[si]),
