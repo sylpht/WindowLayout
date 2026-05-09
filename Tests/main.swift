@@ -190,6 +190,62 @@ test("LayoutManager — rename & delete & profile() lookup") {
     return mgr.profile(id: id) == nil && mgr.allProfiles.isEmpty
 }
 
+// ── 10b ───────────────────────────────────────────────────────
+test("autoRestore — no-op when no profile matches signature, doesn't crash") {
+    let mgr = LayoutManager(storageURL: tempStorageURL())
+    // Add a profile for a fake signature that won't match the real display.
+    let p = LayoutProfile(
+        id: UUID(), displaySignature: "definitely-not-this-display",
+        name: "Other Setup", capturedAt: Date(),
+        windows: [], screenFrames: []
+    )
+    mgr.addProfile(p)
+    mgr.autoRestore()  // must return cleanly
+    return mgr.lastApplyMovedWindows == false
+}
+
+// ── 10c ───────────────────────────────────────────────────────
+test("autoRestore — picks the most recently captured user-saved profile") {
+    let mgr = LayoutManager(storageURL: tempStorageURL())
+    let sig = DisplayConfiguration.current().signature
+    let older = LayoutProfile(
+        id: UUID(), displaySignature: sig, name: "Old",
+        capturedAt: Date(timeIntervalSinceNow: -3600),
+        windows: [], screenFrames: []
+    )
+    let newer = LayoutProfile(
+        id: UUID(), displaySignature: sig, name: "New",
+        capturedAt: Date(),
+        windows: [], screenFrames: []
+    )
+    mgr.addProfile(older)
+    mgr.addProfile(newer)
+    // Sanity: profilesForCurrentSetup orders newest first.
+    let ordered = mgr.profilesForCurrentSetup()
+    return ordered.count == 2 && ordered.first?.name == "New"
+}
+
+// ── 10d ───────────────────────────────────────────────────────
+test("autoRestore — tombstoned profile is NOT restored, even if newest") {
+    let mgr = LayoutManager(storageURL: tempStorageURL())
+    let sig = DisplayConfiguration.current().signature
+    let live = LayoutProfile(
+        id: UUID(), displaySignature: sig, name: "Live",
+        capturedAt: Date(timeIntervalSinceNow: -3600),  // older
+        windows: [], screenFrames: []
+    )
+    var tombstoned = LayoutProfile(
+        id: UUID(), displaySignature: sig, name: "Deleted",
+        capturedAt: Date(),  // newer than `live`
+        windows: [], screenFrames: []
+    )
+    tombstoned.deletedAt = Date()
+    mgr.addProfile(live)
+    mgr.addProfile(tombstoned)
+    let visible = mgr.profilesForCurrentSetup()
+    return visible.count == 1 && visible.first?.name == "Live"
+}
+
 // ── 10a ───────────────────────────────────────────────────────
 test("suggestedNameForNewLayout — gap-aware (no collision after middle delete)") {
     L.userPreference = .en  // deterministic English template
