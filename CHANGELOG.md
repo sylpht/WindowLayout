@@ -29,6 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the cask only updates when CFBundleShortVersionString actually bumps
 - CI workflow: macos-15 runner + match release signing (Hardened Runtime
   + entitlements + strict verify) so signing regressions surface in CI
+- **Long window titles (>64 chars) now restore correctly** — earlier privacy fix
+  truncated titles at save time but `apply()` compared against full live titles,
+  causing silent restore failures for documents/tabs with long names
+- `suggestedNameForNewLayout` is now gap-aware — deleting a middle layout (e.g.
+  "Layout 2" out of [1,2,3]) no longer suggests a colliding name on next save
+- `apply()` skips silently when Accessibility is denied + new
+  `lastApplyMovedWindows` flag — restore paths only flash success when something
+  actually moved, was previously misleading on revoked AX
+- Onboarding window: `Esc` closes; observer leak fixed (each language switch
+  no longer leaves a dead observer in NotificationCenter)
+- `applicationWillTerminate` drains the iCloud push queue with a sync barrier —
+  save → quit no longer loses the push if the closure hadn't run yet
+- `captureAutoSnapshot` skips when Stage Manager is active (would have captured
+  off-screen sidebar positions); manual Save warns + asks confirmation
 
 ## [1.1.0] — 2026-04-25
 
