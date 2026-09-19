@@ -106,8 +106,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         restoreWorkItems.forEach { $0.cancel() }
         restoreWorkItems.removeAll()
 
-        for delay in [2.5, 6.0, 14.0] {
+        let scheduledAt = Date()
+        let signature = lastSignature
+        Log.info("Auto-restore scheduled: reason=display-change, signature=\(signature)")
+        for (attempt, delay) in [2.5, 6.0, 14.0].enumerated() {
             let item = DispatchWorkItem {
+                let elapsed = String(format: "%.3f", Date().timeIntervalSince(scheduledAt))
+                Log.info("Auto-restore attempt \(attempt + 1)/3: delay=\(delay)s, elapsed=\(elapsed)s, scheduledSignature=\(signature), currentSignature=\(DisplayConfiguration.current().signature)")
                 LayoutManager.shared.autoRestore()
             }
             restoreWorkItems.append(item)

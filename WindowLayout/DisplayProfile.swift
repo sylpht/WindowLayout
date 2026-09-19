@@ -93,4 +93,20 @@ struct DisplayConfiguration {
             return L.displaysCount(screens.count)
         }
     }
+
+    /// Preserve array order in diagnostics: the sorted signature cannot show
+    /// which physical display a saved screenIndex referred to at capture time.
+    static func diagnosticScreens() -> String {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return NSScreen.screens.enumerated().map { index, screen in
+            let identity: String
+            if let id = screen.deviceDescription[key] as? CGDirectDisplayID {
+                identity = "\(CGDisplayVendorNumber(id)):\(CGDisplayModelNumber(id)):\(CGDisplaySerialNumber(id)) builtin=\(CGDisplayIsBuiltin(id) != 0)"
+            } else {
+                identity = "unavailable"
+            }
+            let f = screen.frame
+            return "index=\(index) identity=\(identity) appKitFrame=[\(f.origin.x),\(f.origin.y),\(f.width),\(f.height)]"
+        }.joined(separator: " | ")
+    }
 }

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3-rc.1] — 2026-09-19
+
+Diagnostic pre-release for investigating [issue #2](https://github.com/sylpht/WindowLayout/issues/2).
+The app bundle reports version 1.1.3, build 5. The issue is not resolved by this release.
+
+### Added
+- Capture and restore diagnostics: window counts, skipped windows, unavailable apps,
+  AX window enumeration errors, and size/position setter return codes.
+- Immediate frame readback with separate movement and target-match observations.
+  Window titles and document paths are not included in the new log messages.
+- Ordered display identities and frames, plus planned and elapsed retry timing.
+- Five tests for interpreting restore outcomes, bringing the suite to 46 tests.
+- A controlled reproduction guide in `docs/restore-diagnostics.md`.
+
+### Fixed
+- Restore no longer reports movement solely because it attempted an AX write;
+  the movement flag requires an observed frame change greater than one point.
+- Restore entry points clear the previous movement flag even when they exit early.
+
+### Known limitations
+- Immediate movement may be partial or off target, and macOS may rearrange the window later.
+- This release does not add startup/wake triggers, Space assignment, stable per-window
+  display identities, or coordinate-system corrections. Window matching remains unchanged.
+
 ## [1.1.2] — 2026-05-10
 
 ### Added

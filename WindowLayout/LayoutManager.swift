@@ -138,13 +138,18 @@ class LayoutManager {
     }
 
     func restoreLayout(id: UUID) {
-        guard let profile = profile(id: id) else { return }
+        lastApplyMovedWindows = false
+        guard let profile = profile(id: id) else {
+            Log.info("restoreLayout skipped: profile not found")
+            return
+        }
         apply(profile: profile)
     }
 
     /// Restore the best match for the current display configuration:
     /// most-recent user-saved profile first, auto-snapshot as fallback.
     func autoRestore() {
+        lastApplyMovedWindows = false
         // Stage Manager auto-arranges windows; restoring positions on top of it just
         // gets clobbered. Skip — user can still manually trigger restore from the menu.
         if WindowEnvironment.isStageManagerActive {
@@ -226,17 +231,28 @@ class LayoutManager {
     }
 
     private func captureWindows(screens: [CGRect]) -> [WindowSnapshot] {
+        Log.info("capture screens: \(DisplayConfiguration.diagnosticScreens())")
         let excluded = excludedBundleIDs
         var result: [WindowSnapshot] = []
+        var regularApps = 0, excludedApps = 0, missingBundleID = 0, axFailures = 0
+        var available = 0, minimized = 0, fullscreen = 0, unreadableFrames = 0, tooSmall = 0
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
-            guard let bid = app.bundleIdentifier, !excluded.contains(bid) else { continue }
+            regularApps += 1
+            guard let bid = app.bundleIdentifier else { missingBundleID += 1; continue }
+            guard !excluded.contains(bid) else { excludedApps += 1; continue }
             let axApp = AXUIElementCreateApplication(app.processIdentifier)
-            guard let windows = axWindows(of: axApp) else { continue }
+            let enumeration = axWindows(of: axApp)
+            guard let windows = enumeration.windows else {
+                axFailures += 1
+                Log.warn("capture app=\(bid) pid=\(app.processIdentifier): AX windows unavailable code=\(enumeration.error.rawValue) invalidValue=\(enumeration.error == .success)")
+                continue
+            }
+            available += windows.count
             for window in windows {
-                guard !isMinimized(window),
-                      !isFullscreen(window),
-                      let frame = axFrame(of: window),
-                      frame.width > 50, frame.height > 50 else { continue }
+                guard !isMinimized(window) else { minimized += 1; continue }
+                guard !isFullscreen(window) else { fullscreen += 1; continue }
+                guard let frame = axFrame(of: window) else { unreadableFrames += 1; continue }
+                guard frame.width > 50, frame.height > 50 else { tooSmall += 1; continue }
                 // Privacy mode: store empty title. Restore will match by ordinal
                 // position within the app instead.
                 let title = privacyHideTitles
@@ -259,13 +275,17 @@ class LayoutManager {
                 ))
             }
         }
+        let capturedByApp = Dictionary(grouping: result, by: \.bundleID)
+            .map { "\($0.key):\($0.value.count)" }.sorted().joined(separator: ",")
+        Log.info("captureWindows: axTrusted=\(AXIsProcessTrusted()) regularApps=\(regularApps) excludedApps=\(excludedApps) missingBundleID=\(missingBundleID) axFailures=\(axFailures) available=\(available) minimized=\(minimized) fullscreen=\(fullscreen) unreadableFrames=\(unreadableFrames) tooSmall=\(tooSmall) captured=\(result.count) byApp=[\(capturedByApp)]")
         return result
     }
 
     // MARK: - Apply
 
-    /// True if the most recent apply() call actually moved at least one window.
-    /// Restore paths use this to distinguish "did work" from "silently no-op'd".
+    /// True only when the latest restore observed a frame change greater than 1 pt
+    /// between AX reads before and immediately after its setters. This does not
+    /// prove that the target was reached or that the frame remained there.
     private(set) var lastApplyMovedWindows = false
 
     private func apply(profile: LayoutProfile) {
@@ -277,20 +297,50 @@ class LayoutManager {
             return
         }
         let currentScreens = NSScreen.screens.map(\.frame)
-        guard !currentScreens.isEmpty else { return }
+        Log.info("apply screens: \(DisplayConfiguration.diagnosticScreens())")
+        guard !currentScreens.isEmpty else {
+            Log.warn("apply: skipped — no screens available")
+            return
+        }
         let excluded = excludedBundleIDs
+        let runningApps = NSWorkspace.shared.runningApplications
+        let regularApps = runningApps.filter { $0.activationPolicy == .regular }
+        let regularBundleIDs = Set(regularApps.compactMap(\.bundleIdentifier))
+        let savedByApp = Dictionary(grouping: profile.windows, by: \.bundleID)
+        Log.info("apply: saved=\(profile.windows.count) apps=\(savedByApp.count) screens=\(currentScreens.count)")
+        for bid in savedByApp.keys.sorted() {
+            let status: String?
+            if excluded.contains(bid) {
+                status = "excluded"
+            } else if !regularBundleIDs.contains(bid) {
+                status = runningApps.contains { $0.bundleIdentifier == bid } ? "notRegular" : "notRunning"
+            } else {
+                status = nil
+            }
+            if let status {
+                let count = savedByApp[bid]?.count ?? 0
+                Log.info("apply app=\(bid): status=\(status) saved=\(count) unconsumedSaved=\(count)")
+            }
+        }
 
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+        for app in regularApps {
             guard let bid = app.bundleIdentifier, !excluded.contains(bid) else { continue }
             // Group snapshots by title so duplicates (e.g. two "New Tab"s) get distinct snapshots.
             // Each snapshot may be consumed at most once per app — no random index fallback,
             // which produced misplaced windows when AX returned them in non-deterministic order.
             var pool = profile.windows.filter { $0.bundleID == bid }
             guard !pool.isEmpty else { continue }
+            var counts = RestoreAppCounts(saved: pool.count)
             let axApp = AXUIElementCreateApplication(app.processIdentifier)
-            guard let windows = axWindows(of: axApp) else { continue }
-            for window in windows {
-                guard !isMinimized(window), !isFullscreen(window) else { continue }
+            let enumeration = axWindows(of: axApp)
+            guard let windows = enumeration.windows else {
+                Log.warn("apply app=\(bid) pid=\(app.processIdentifier): status=axWindowsUnavailable code=\(enumeration.error.rawValue) invalidValue=\(enumeration.error == .success) saved=\(pool.count) unconsumedSaved=\(pool.count)")
+                continue
+            }
+            counts.available = windows.count
+            for (windowIndex, window) in windows.enumerated() {
+                guard !isMinimized(window) else { counts.minimized += 1; continue }
+                guard !isFullscreen(window) else { counts.fullscreen += 1; continue }
                 // Truncate live title to the same length we used at save time, otherwise
                 // a > 64-char document title (e.g. "Document - lots of words…") never matches
                 // the truncated saved version and the window never gets restored.
@@ -300,25 +350,32 @@ class LayoutManager {
                 // first remaining empty-title snapshot in the pool.
                 let idx = pool.firstIndex(where: { !$0.windowTitle.isEmpty && $0.windowTitle == title })
                     ?? pool.firstIndex(where: { $0.windowTitle.isEmpty })
-                guard let i = idx else { continue }
+                guard let i = idx else {
+                    if pool.isEmpty { counts.noRemainingSaved += 1 } else { counts.titleMismatch += 1 }
+                    continue
+                }
                 let s = pool.remove(at: i)
                 let si = min(s.screenIndex, currentScreens.count - 1)
                 let target = Geometry.clamp(
                     Geometry.denormalize(s.normalizedFrame, in: currentScreens[si]),
                     into: currentScreens[si]
                 )
-                setFrame(of: window, to: target)
-                lastApplyMovedWindows = true
+                let outcome = setFrame(of: window, to: target)
+                counts.record(outcome)
+                if outcome.immediateChanged == true { lastApplyMovedWindows = true }
+                Log.info("apply app=\(bid) pid=\(app.processIdentifier) windowIndex=\(windowIndex) savedScreenIndex=\(s.screenIndex) targetScreenIndex=\(si): \(outcome.logDescription)")
             }
+            Log.info("apply app=\(bid) pid=\(app.processIdentifier): \(counts.logDescription)")
         }
+        Log.info("apply complete: immediateFrameChangeObserved=\(lastApplyMovedWindows)")
     }
 
     // MARK: - AX helpers
 
-    private func axWindows(of app: AXUIElement) -> [AXUIElement]? {
+    private func axWindows(of app: AXUIElement) -> (windows: [AXUIElement]?, error: AXError) {
         var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success else { return nil }
-        return ref as? [AXUIElement]
+        let error = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref)
+        return (error == .success ? ref as? [AXUIElement] : nil, error)
     }
 
     private func axFrame(of window: AXUIElement) -> CGRect? {
@@ -352,17 +409,21 @@ class LayoutManager {
         return (ref as? Bool) == true
     }
 
-    private func setFrame(of window: AXUIElement, to frame: CGRect) {
+    private func setFrame(of window: AXUIElement, to frame: CGRect) -> RestoreFrameResult {
+        let before = axFrame(of: window)
         var pos = frame.origin
         var size = frame.size
+        var sizeError: Int32?, positionError: Int32?
         // Set size FIRST so a small new size doesn't get clamped at the old position
         // when the new position pushes the window further from screen edges.
         if let sv = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
+            sizeError = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv).rawValue
         }
         if let pv = AXValueCreate(.cgPoint, &pos) {
-            AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pv)
+            positionError = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pv).rawValue
         }
+        return RestoreFrameResult(before: before, target: frame, after: axFrame(of: window),
+                                  sizeError: sizeError, positionError: positionError)
     }
 
     // MARK: - Persistence
