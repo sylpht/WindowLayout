@@ -13,6 +13,7 @@ swiftc \
   WindowLayout/WindowSnapshot.swift \
   WindowLayout/DisplayProfile.swift \
   WindowLayout/iCloudSync.swift \
+  WindowLayout/RestoreDiagnostics.swift \
   WindowLayout/LayoutManager.swift \
   Tests/main.swift \
   -sdk "$SDK" \

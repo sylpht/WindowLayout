@@ -121,6 +121,57 @@ test("Geometry.normalize — zero-size screen returns original frame") {
 }
 
 // ── 8 ─────────────────────────────────────────────────────────
+test("Restore diagnostics — successful setters do not prove movement") {
+    let before = CGRect(x: 0, y: 0, width: 800, height: 600)
+    let target = before.offsetBy(dx: 500, dy: 0)
+    let result = RestoreFrameResult(before: before, target: target, after: before,
+                                    sizeError: 0, positionError: 0)
+    return result.immediateChanged == false && result.immediateTargetMatch == false
+        && !result.setterFailed
+}
+
+test("Restore diagnostics — partial movement preserves AX failure and target mismatch") {
+    let before = CGRect(x: 0, y: 0, width: 800, height: 600)
+    let target = CGRect(x: 500, y: 0, width: 1000, height: 600)
+    let after = before.offsetBy(dx: 500, dy: 0)
+    let result = RestoreFrameResult(before: before, target: target, after: after,
+                                    sizeError: -25202, positionError: 0)
+    return result.immediateChanged == true && result.immediateTargetMatch == false
+        && result.setterFailed && result.logDescription.contains("sizeAX=-25202")
+}
+
+test("Restore diagnostics — already at target is distinct from observed movement") {
+    let target = CGRect(x: 500, y: 0, width: 800, height: 600)
+    let alreadyThere = RestoreFrameResult(before: target, target: target, after: target,
+                                          sizeError: 0, positionError: 0)
+    let moved = RestoreFrameResult(before: target.offsetBy(dx: -500, dy: 0), target: target,
+                                   after: target, sizeError: 0, positionError: 0)
+    return alreadyThere.immediateChanged == false && alreadyThere.immediateTargetMatch == true
+        && moved.immediateChanged == true && moved.immediateTargetMatch == true
+}
+
+test("Restore diagnostics — absent readback remains unknown and is counted") {
+    let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+    let result = RestoreFrameResult(before: frame, target: frame, after: nil,
+                                    sizeError: nil, positionError: -25204)
+    var counts = RestoreAppCounts(saved: 2)
+    counts.record(result)
+    let missingBefore = RestoreFrameResult(before: nil, target: frame, after: frame,
+                                           sizeError: 0, positionError: 0)
+    return result.immediateChanged == nil && result.immediateTargetMatch == nil
+        && missingBefore.immediateChanged == nil && missingBefore.immediateTargetMatch == true
+        && counts.attempted == 1 && counts.immediateChanged == 0
+        && counts.immediateReadbackMissing == 1 && counts.setterFailures == 1
+        && counts.logDescription.contains("unconsumedSaved=1")
+}
+
+test("Restore diagnostics — frame comparisons tolerate one point of AX rounding") {
+    let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+    return RestoreFrameResult.framesMatch(frame, frame.offsetBy(dx: 1, dy: -1))
+        && !RestoreFrameResult.framesMatch(frame, frame.offsetBy(dx: 1.1, dy: 0))
+        && !RestoreFrameResult.framesMatch(frame, CGRect(x: 0, y: 0, width: 802, height: 600))
+}
+
 test("LayoutProfile — Codable round-trip preserves all fields") {
     let original = LayoutProfile(
         id: UUID(),

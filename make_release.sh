@@ -12,7 +12,7 @@
 #
 # Does NOT touch /Applications or your dev build — those stay as-is.
 
-set -e
+set -eo pipefail
 cd "$(dirname "$0")"
 
 OUT="release"
@@ -31,6 +31,7 @@ SOURCES=(
   WindowLayout/WindowSnapshot.swift
   WindowLayout/DisplayProfile.swift
   WindowLayout/iCloudSync.swift
+  WindowLayout/RestoreDiagnostics.swift
   WindowLayout/LayoutManager.swift
   WindowLayout/HotKeyManager.swift
   WindowLayout/OnboardingWindowController.swift
