@@ -2,7 +2,7 @@
 
 Diagnostics were introduced in `v1.1.3-rc.1` for [issue #2](https://github.com/sylpht/WindowLayout/issues/2).
 The diagnostic build does not yet fix Space assignment, startup/wake triggering, display index mapping,
-or the AX/AppKit coordinate mismatch. The next candidate, `v1.1.3-rc.2`, uses
+or the AX/AppKit coordinate mismatch. Candidate `v1.1.3-rc.2` uses
 app bundle version 1.1.3, build 6, and corrects the missing-read counter.
 
 ## Controlled reproduction

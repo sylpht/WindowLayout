@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Preparing the next diagnostic candidate, `v1.1.3-rc.2` (app 1.1.3, build 6).
+## [1.1.3-rc.2] — 2026-09-20
+
+Diagnostic candidate `v1.1.3-rc.2` (app 1.1.3, build 6).
 The published `v1.1.3-rc.1` tag and assets remain unchanged.
 
 ### Fixed
@@ -16,12 +18,14 @@ The published `v1.1.3-rc.1` tag and assets remain unchanged.
   full tag and include `--prerelease --latest=false`.
 - Stable Homebrew cask updates require `--update-cask`, which is rejected for
   prereleases. `--dry-run` validates the release plan before build side effects.
+- Validate the cask SHA field before preserving a same-version checksum, and
+  propagate cask write failures instead of reporting a successful update.
 - Restore summaries count a missing baseline or post-write AX frame as one
   `immediateReadbackMissing` result, including when both reads are absent.
 
 ### Tests
-- Added release-tooling regressions and AX readback combinations; release policy
-  tests run locally and in CI without building or publishing a release.
+- 49 Swift tests and 23 release-tooling regressions pass; release policy tests
+  run locally and in CI without building or publishing a release.
 
 ## [1.1.3-rc.1] — 2026-09-19
 
