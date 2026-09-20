@@ -54,14 +54,14 @@ update_release_cask() {
         echo "Error: expected one version field in $cask." >&2
         return 1
     fi
-    if [ "$current_version" = "$RELEASE_VERSION" ]; then
-        echo "▶ Cask version unchanged ($RELEASE_VERSION); preserving its published SHA."
-        return 0
-    fi
     current_sha=$(sed -nE 's/^[[:space:]]*sha256[[:space:]]+"([^"]+)".*/\1/p' "$cask")
     if [ -z "$current_sha" ] || [[ "$current_sha" == *$'\n'* ]]; then
         echo "Error: expected one quoted sha256 field in $cask." >&2
         return 1
+    fi
+    if [ "$current_version" = "$RELEASE_VERSION" ]; then
+        echo "▶ Cask version unchanged ($RELEASE_VERSION); preserving its published SHA."
+        return 0
     fi
     sed -i '' -E \
         -e "s/^([[:space:]]*)sha256[[:space:]]+\"[^\"]*\"/\\1sha256 \"$sha\"/" \

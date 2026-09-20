@@ -184,6 +184,7 @@ EOF
 
 helper_invalid_sha() {
     make_fixture || return 1
+    write_cask "$CASK" "${2:-1.1.2}" || return 1
     case "$1" in
         missing) sed '/sha256/d' "$CASK" > "$FIXTURE/invalid-cask" || return 1 ;;
         duplicate) awk '/sha256/ { print } { print }' "$CASK" > "$FIXTURE/invalid-cask" || return 1 ;;
@@ -231,6 +232,8 @@ test_case "same-version rebuild preserves existing cask SHA" helper_same_version
 test_case "cask write failure does not report success" helper_write_failure
 test_case "missing cask SHA rejected before mutation" helper_invalid_sha missing
 test_case "duplicate cask SHA rejected before mutation" helper_invalid_sha duplicate
+test_case "same-version cask with missing SHA is rejected" helper_invalid_sha missing 1.1.3
+test_case "same-version cask with duplicate SHA is rejected" helper_invalid_sha duplicate 1.1.3
 
 printf '\nRelease tooling: %s passed, %s failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
