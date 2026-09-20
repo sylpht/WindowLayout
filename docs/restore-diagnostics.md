@@ -1,8 +1,9 @@
 # Diagnose a restore failure
 
-The `v1.1.3-rc.1` pre-release adds diagnostics for [issue #2](https://github.com/sylpht/WindowLayout/issues/2).
-It does not yet fix Space assignment, startup/wake triggering, display index mapping,
-or the AX/AppKit coordinate mismatch. The app bundle version is 1.1.3, build 5.
+Diagnostics were introduced in `v1.1.3-rc.1` for [issue #2](https://github.com/sylpht/WindowLayout/issues/2).
+The diagnostic build does not yet fix Space assignment, startup/wake triggering, display index mapping,
+or the AX/AppKit coordinate mismatch. The next candidate, `v1.1.3-rc.2`, uses
+app bundle version 1.1.3, build 6, and corrects the missing-read counter.
 
 ## Controlled reproduction
 
@@ -43,6 +44,7 @@ The file is `~/Library/Logs/WindowLayout/WindowLayout.log` (with one rotated `.l
 | `sizeAX`, `positionAX` | AX write return codes; zero means the request returned success, not that the target was reached |
 | `immediateChanged` | Frame changed by more than one point between reads immediately before/after the writes; unknown if either read is missing |
 | `immediateTargetMatch` | Immediate frame readback matches the requested target within one point; unknown if unavailable |
+| `immediateReadbackMissing` | Number of attempted windows with a missing before or after frame read; a window missing both counts once |
 
 An observed change can be partial or off target. An unchanged immediate readback
 can precede a delayed move. Observe the final window positions as well as the log.
@@ -57,8 +59,9 @@ blank or changed. Do not edit the working profile as part of redaction.
 
 ## Validation scope
 
-The 46-test suite covers storage, sync, geometry helpers and interpretation of
-restore outcomes. A universal app is compiled for arm64 and x86_64. These checks
+The Swift tests cover storage, sync, geometry helpers and interpretation of
+restore outcomes; shell tests check release policy without publishing. A universal
+app is compiled for arm64 and x86_64. These checks
 do not reproduce a multi-display sleep/wake failure or prove successful live AX
 restoration. Keep issue #2 open until results on the affected configuration confirm
 the relevant fixes.

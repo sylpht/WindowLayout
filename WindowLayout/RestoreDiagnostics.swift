@@ -60,7 +60,7 @@ struct RestoreAppCounts {
         attempted += 1
         if result.immediateChanged == true { immediateChanged += 1 }
         if result.immediateTargetMatch == false { immediateTargetMismatch += 1 }
-        if result.after == nil { immediateReadbackMissing += 1 }
+        if result.before == nil || result.after == nil { immediateReadbackMissing += 1 }
         if result.setterFailed { setterFailures += 1 }
     }
 

@@ -36,6 +36,9 @@ jobs:
             -o TestRunner
           ./TestRunner
 
+      - name: Release tooling regression tests
+        run: bash Tests/release_tooling.sh
+
   build:
     name: Build .app
     runs-on: macos-15

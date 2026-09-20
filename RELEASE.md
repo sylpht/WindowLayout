@@ -1,6 +1,12 @@
 # Release procedure
 
-How to ship a new version of WindowLayout. Sequential, ~10 minutes.
+How to ship a new version of WindowLayout. The numeric app bundle version and
+the GitHub release tag are separate: app `1.1.3`, build `6` can be distributed as
+`v1.1.3-rc.2`. The builder requires an explicit `--tag`; it never infers a stable
+release from `Info.plist`.
+
+`v1.1.3-rc.1` is already published. Use a new tag and build number for its
+successor; do not replace existing tags or release assets.
 
 ## 0. Pre-flight: 30-second manual smoke test
 
@@ -20,79 +26,117 @@ release catches what CI cannot.
 5. **Verify all three windows snapped back** to your saved positions.
    - If any window stayed put → restore is broken.
    - If you see an alert about empty layouts → save is broken.
-   - If the icon flashed but nothing moved → AX permission issue
-     (this is expected after `brew upgrade`; re-grant in System Settings).
+   - If the icon flashed but placement is wrong → inspect the AX/readback
+     diagnostics and Accessibility permission; a resize or later rearrangement
+     does not prove the requested position persisted.
 6. Open a document in TextEdit with a long filename
    (`This_is_a_very_long_filename_test_for_window_titles.txt`),
    save another layout, restore it. **TextEdit window must move too** —
    regression guard for the title-truncation bug from v1.0 ↔ v1.1.
 
-If any of those fail, fix before tagging.
+For a stable release, fix any failure before tagging. If a diagnostic prerelease
+is needed to investigate a setup you cannot reproduce, explicitly list the
+unperformed live checks and unresolved issues in its release notes. Passing unit
+tests or CI is not a substitute for confirming live restoration.
 
 ---
 
-## 1. Bump version
+## 1. Set bundle version and choose the release tag
 
 ```bash
-plutil -replace CFBundleShortVersionString -string "1.1.2" WindowLayout/Info.plist
-plutil -replace CFBundleVersion -string "4" WindowLayout/Info.plist
+plutil -replace CFBundleShortVersionString -string "1.1.3" WindowLayout/Info.plist
+plutil -replace CFBundleVersion -string "6" WindowLayout/Info.plist
 ```
 
-Edit `CHANGELOG.md`: rename `## [Unreleased]` → `## [1.1.2] — YYYY-MM-DD`,
-add a new empty `## [Unreleased]` section above it.
+Choose a tag such as `v1.1.3-rc.2` for the next candidate. Its numeric part must
+match `CFBundleShortVersionString`. Increment `CFBundleVersion` for every new
+distributed build, even when its numeric version is unchanged. The examples
+below prepare that candidate, not a stable `v1.1.3`.
+
+Before publishing, date the matching `CHANGELOG.md` entry and prepare
+`release-notes.md` with the changes, validation and unresolved limitations.
 
 ## 2. Tests + release build
 
 ```bash
-./run_tests.sh         # must show "X passed, 0 failed"
-./make_release.sh      # auto-bumps cask SHA + version since version changed
+./run_tests.sh
+./make_release.sh --tag v1.1.3-rc.2 --dry-run
+./make_release.sh --tag v1.1.3-rc.2
 ```
 
-`make_release.sh` will tell you the new SHA was written into
-`homebrew-tap/Casks/windowlayout.rb` and remind you to upload + push.
+The dry run validates the tag and prints the same publish command as the build,
+without invoking the SDK/build tools or changing files. A prerelease never edits
+`homebrew-tap/Casks/windowlayout.rb`; requesting `--update-cask` for it is an error.
+
+For an intentionally stable release use `--tag v1.1.3`. Cask changes remain
+disabled unless `--update-cask` is also supplied and a local tap checkout exists.
+Rebuilding a version already in the cask preserves its published checksum.
+
+Verify the resulting DMG with `hdiutil verify release/WindowLayout.dmg`. Mount it
+read-only and check the enclosed app's strict signature, bundle/build versions
+and both architectures. The build script does not install or launch the app.
 
 ## 3. Commit, tag, push
 
 ```bash
 git add WindowLayout/Info.plist CHANGELOG.md
-git commit -m "Release v1.1.2"
-git tag v1.1.2
-git push && git push --tags
+git commit -m "Prepare v1.1.3-rc.2"
+```
+
+Push the change through a pull request. Wait for CI **and the repository's code
+review** to finish before merging. Then tag the exact merged, tested source
+commit; verify that the packaged app was built from the same source tree.
+
+```bash
+git tag -a v1.1.3-rc.2 -m "WindowLayout v1.1.3-rc.2" <tested-commit-sha>
+git push origin v1.1.3-rc.2
 ```
 
 ## 4. GitHub Release
 
 ```bash
-gh release create v1.1.2 release/WindowLayout.dmg \
-  --title "v1.1.2" \
-  --notes "$(awk '/^## \[1\.1\.2\]/{flag=1;next} /^## \[/{flag=0} flag' CHANGELOG.md)"
+gh release create v1.1.3-rc.2 release/WindowLayout.dmg \
+  --verify-tag --prerelease --latest=false \
+  --title "v1.1.3-rc.2" --notes-file release-notes.md
 ```
 
-**Order matters:** the GitHub Release must exist BEFORE the tap is updated,
-otherwise `brew install` will 404.
+The builder prints this command using the complete supplied tag even if no
+Homebrew checkout exists. For a stable tag it omits the prerelease flags.
 
-## 5. Push the Homebrew tap
+## 5. Stable releases only: publish the Homebrew update
+
+Skip this entire step for RCs. For a tested stable release, build with
+`./make_release.sh --tag v1.1.3 --update-cask`, publish that exact DMG under the
+stable tag first, then review and push the generated cask diff.
+
+**Order matters:** the stable GitHub release and asset must exist before the tap
+update is pushed, otherwise `brew install` will fail. Do not rebuild or change
+the checksum after publishing an asset under that version.
 
 ```bash
 cd homebrew-tap
 git add Casks/windowlayout.rb
-git commit -m "Bump windowlayout to v1.1.2"
+git commit -m "Bump windowlayout to v1.1.3"
 git push
 ```
 
 ## 6. Post-release sanity check
 
 ```bash
-brew update
-brew info --cask sylpht/tap/windowlayout    # version should match
-curl -sIL "https://github.com/sylpht/WindowLayout/releases/download/v1.1.2/WindowLayout.dmg" | head -2
-# Expected: HTTP/2 302 → HTTP/2 200
+gh release view v1.1.3-rc.2 --json isDraft,isPrerelease,tagName,assets
+curl -fL --output /tmp/WindowLayout-rc-check.dmg \
+  https://github.com/sylpht/WindowLayout/releases/download/v1.1.3-rc.2/WindowLayout.dmg
+shasum -a 256 release/WindowLayout.dmg /tmp/WindowLayout-rc-check.dmg
 ```
+
+Checksums must match. An RC must show `isPrerelease: true`; the latest stable
+release and the stable Homebrew cask should remain unchanged. For a stable
+release, additionally run `brew update` and inspect `brew info --cask sylpht/tap/windowlayout`.
 
 ## After-shipping
 
 - Reset `defaults write com.windowlayout.app hasLaunched -bool true`
   if you opened the welcome window during testing
 - Watch GitHub Issues for early adopters' bug reports for ~48 hours
-- If a critical regression slips through → bump patch (1.1.2 → 1.1.3)
-  and re-run from step 1, no shame
+- If a regression slips through, prepare a new version/tag and build number;
+  do not overwrite the old release.

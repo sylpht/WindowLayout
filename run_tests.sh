@@ -21,3 +21,5 @@ swiftc \
   -o TestRunner
 
 ./TestRunner
+
+bash Tests/release_tooling.sh
