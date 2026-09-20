@@ -150,19 +150,54 @@ test("Restore diagnostics — already at target is distinct from observed moveme
         && moved.immediateChanged == true && moved.immediateTargetMatch == true
 }
 
-test("Restore diagnostics — absent readback remains unknown and is counted") {
+test("Restore diagnostics — missing after readback remains unknown and is counted") {
     let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
     let result = RestoreFrameResult(before: frame, target: frame, after: nil,
                                     sizeError: nil, positionError: -25204)
     var counts = RestoreAppCounts(saved: 2)
     counts.record(result)
-    let missingBefore = RestoreFrameResult(before: nil, target: frame, after: frame,
-                                           sizeError: 0, positionError: 0)
     return result.immediateChanged == nil && result.immediateTargetMatch == nil
-        && missingBefore.immediateChanged == nil && missingBefore.immediateTargetMatch == true
         && counts.attempted == 1 && counts.immediateChanged == 0
         && counts.immediateReadbackMissing == 1 && counts.setterFailures == 1
         && counts.logDescription.contains("unconsumedSaved=1")
+}
+
+test("Restore diagnostics — missing baseline is counted while target readback remains usable") {
+    let target = CGRect(x: 0, y: 0, width: 800, height: 600)
+    for matchesTarget in [true, false] {
+        let after = matchesTarget ? target : target.offsetBy(dx: 100, dy: 0)
+        let result = RestoreFrameResult(before: nil, target: target, after: after,
+                                        sizeError: 0, positionError: 0)
+        var counts = RestoreAppCounts(saved: 1)
+        counts.record(result)
+        guard result.immediateChanged == nil && result.immediateTargetMatch == matchesTarget,
+              counts.attempted == 1 && counts.immediateChanged == 0,
+              counts.immediateReadbackMissing == 1 && counts.setterFailures == 0,
+              counts.immediateTargetMismatch == (matchesTarget ? 0 : 1) else { return false }
+    }
+    return true
+}
+
+test("Restore diagnostics — both missing readbacks count once per window") {
+    let target = CGRect(x: 0, y: 0, width: 800, height: 600)
+    let result = RestoreFrameResult(before: nil, target: target, after: nil,
+                                    sizeError: 0, positionError: 0)
+    var counts = RestoreAppCounts(saved: 1)
+    counts.record(result)
+    return result.immediateChanged == nil && result.immediateTargetMatch == nil
+        && counts.attempted == 1 && counts.immediateChanged == 0
+        && counts.immediateReadbackMissing == 1 && counts.immediateTargetMismatch == 0
+}
+
+test("Restore diagnostics — complete readbacks do not count as missing") {
+    let target = CGRect(x: 100, y: 0, width: 800, height: 600)
+    let result = RestoreFrameResult(before: target.offsetBy(dx: -100, dy: 0), target: target,
+                                    after: target, sizeError: 0, positionError: 0)
+    var counts = RestoreAppCounts(saved: 1)
+    counts.record(result)
+    return result.immediateChanged == true && result.immediateTargetMatch == true
+        && counts.attempted == 1 && counts.immediateChanged == 1
+        && counts.immediateReadbackMissing == 0 && counts.immediateTargetMismatch == 0
 }
 
 test("Restore diagnostics — frame comparisons tolerate one point of AX rounding") {

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.1.3-rc.2] — 2026-09-20
+
+Diagnostic candidate `v1.1.3-rc.2` (app 1.1.3, build 6).
+The published `v1.1.3-rc.1` tag and assets remain unchanged.
+
+### Fixed
+- Release builds now require an explicit `--tag` separate from the numeric bundle
+  version and validate that the versions match. Prerelease commands retain the
+  full tag and include `--prerelease --latest=false`.
+- Stable Homebrew cask updates require `--update-cask`, which is rejected for
+  prereleases. `--dry-run` validates the release plan before build side effects.
+- Validate the cask SHA field before preserving a same-version checksum, and
+  propagate cask write failures instead of reporting a successful update.
+- Restore summaries count a missing baseline or post-write AX frame as one
+  `immediateReadbackMissing` result, including when both reads are absent.
+
+### Tests
+- 49 Swift tests and 23 release-tooling regressions pass; release policy tests
+  run locally and in CI without building or publishing a release.
+
 ## [1.1.3-rc.1] — 2026-09-19
 
 Diagnostic pre-release for investigating [issue #2](https://github.com/sylpht/WindowLayout/issues/2).

@@ -6,7 +6,6 @@
 # Apple Development certs produce after download.
 #
 # Output:
-#   release/WindowLayout.app   — universal binary, ad-hoc signed, Hardened Runtime
 #   release/WindowLayout.dmg   — drag-to-Applications DMG
 #   SHA256 printed for Homebrew cask formula
 #
@@ -15,13 +14,50 @@
 set -eo pipefail
 cd "$(dirname "$0")"
 
+source scripts/release_policy.sh
+
+usage() {
+    echo "Usage: $0 --tag vX.Y.Z[-prerelease] [--dry-run] [--update-cask]"
+    echo "  --tag          Required GitHub release tag, separate from the numeric bundle version."
+    echo "  --dry-run      Validate and print the plan without building or changing files."
+    echo "  --update-cask  Opt in to updating a local stable Homebrew cask; forbidden for prereleases."
+}
+
+tag=""
+update_cask=0
+dry_run=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --tag)
+            if [ "$#" -lt 2 ] || [ -n "$tag" ]; then usage >&2; exit 1; fi
+            tag="$2"
+            shift 2
+            ;;
+        --update-cask) update_cask=1; shift ;;
+        --dry-run) dry_run=1; shift ;;
+        --help|-h) usage; exit 0 ;;
+        *) usage >&2; exit 1 ;;
+    esac
+done
+bundle_version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" WindowLayout/Info.plist)
+configure_release "$tag" "$bundle_version" "$update_cask"
+CASK="homebrew-tap/Casks/windowlayout.rb"
+if [ "$UPDATE_CASK" = 1 ] && [ ! -f "$CASK" ]; then
+    echo "Error: --update-cask requires $CASK." >&2
+    exit 1
+fi
+
 OUT="release"
 DMG="$OUT/WindowLayout.dmg"
+echo "▶ Release tag: $RELEASE_TAG; bundle version: $BUNDLE_VERSION; prerelease: $IS_PRERELEASE"
+echo "▶ Update stable Homebrew cask: $UPDATE_CASK"
+print_release_command "$DMG"
+if [ "$dry_run" = 1 ]; then exit 0; fi
+
 # Everything happens in /tmp because ~/Documents has a file-provider extension that
 # auto-adds com.apple.FinderInfo to bundles, which codesign --strict rejects.
 WORKDIR="/tmp/WindowLayoutRelease"
 APP="$WORKDIR/WindowLayout.app"
-STAGE="$WORKDIR/stage.app"
 SDK=$(xcrun --show-sdk-path --sdk macosx)
 
 SOURCES=(
@@ -40,8 +76,7 @@ SOURCES=(
   WindowLayout/main.swift
 )
 
-VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" WindowLayout/Info.plist)
-echo "▶ Building WindowLayout v$VERSION (release / ad-hoc signed)"
+echo "▶ Building WindowLayout $RELEASE_TAG (ad-hoc signed)"
 
 rm -rf "$OUT" "$WORKDIR"
 mkdir -p "$OUT" "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -90,26 +125,9 @@ rm -rf "$WORKDIR"
 SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
 SIZE=$(du -h "$DMG" | awk '{print $1}')
 
-# Auto-update the homebrew tap cask only when the version actually bumped.
-# Rebuilding the SAME version with a different binary produces a different SHA,
-# but the cask must still point at the SHA of the DMG that's actually published
-# on GitHub Releases — overwriting it during dev rebuilds would break `brew install`
-# until a new release is uploaded.
-CASK="homebrew-tap/Casks/windowlayout.rb"
-CASK_BUMPED=0
-if [ -f "$CASK" ]; then
-    CASK_VERSION=$(grep -E '^\s*version ' "$CASK" | sed 's/.*"\(.*\)".*/\1/')
-    if [ "$CASK_VERSION" != "$VERSION" ]; then
-        sed -i '' "s/sha256 \".*\"/sha256 \"$SHA\"/" "$CASK"
-        sed -i '' "s/version \".*\"/version \"$VERSION\"/" "$CASK"
-        echo "▶ Updated $CASK: $CASK_VERSION → $VERSION (SHA $SHA)"
-        CASK_BUMPED=1
-    else
-        echo "▶ Cask version unchanged ($VERSION) — left alone."
-        echo "  When you're ready to ship, bump CFBundleShortVersionString in Info.plist first,"
-        echo "  then re-run this script."
-    fi
-fi
+# Stable cask updates are opt-in. RC builds never touch the stable channel.
+# Rebuilding a stable version already in the cask preserves its published SHA.
+update_release_cask "$CASK" "$SHA"
 
 echo ""
 echo "════════════════════════════════════════════════════════"
@@ -119,24 +137,21 @@ echo ""
 echo "  DMG:     $DMG ($SIZE)"
 echo "  SHA256:  $SHA"
 echo ""
-echo "  Verify signing:"
-echo "    codesign --verify --deep --strict --verbose=2 $APP"
-echo ""
 echo "  Test install:"
 echo "    open $DMG  # drag WindowLayout to Applications"
 echo "    open /Applications/WindowLayout.app  # macOS 15+: approve in System Settings → Privacy"
 echo ""
+echo "  After testing, commit and tag the release sources as $RELEASE_TAG."
+echo "  Publish using the exact tag (do not replace an existing release):"
+print_release_command "$DMG"
 if [ "$CASK_BUMPED" = "1" ]; then
     echo "════════════════════════════════════════════════════════"
-    echo "  RELEASE CHECKLIST — version bumped to v$VERSION:"
+    echo "  RELEASE CHECKLIST — stable cask bumped to $RELEASE_TAG:"
     echo "════════════════════════════════════════════════════════"
     echo ""
-    echo "  1. Upload DMG to GitHub Release (the cask points at GitHub):"
-    echo "     gh release create v$VERSION $DMG --title \"v$VERSION\" --notes \"…\""
-    echo ""
-    echo "  2. Push the tap so 'brew upgrade' picks it up:"
+    echo "  Once the GitHub release exists, push the tap so 'brew upgrade' picks it up:"
     echo "     cd homebrew-tap && git add Casks/windowlayout.rb \\"
-    echo "       && git commit -m \"Bump windowlayout to v$VERSION\" \\"
+    echo "       && git commit -m \"Bump windowlayout to $RELEASE_TAG\" \\"
     echo "       && git push"
     echo ""
     echo "  Order matters: GitHub Release must exist BEFORE users 'brew install',"
