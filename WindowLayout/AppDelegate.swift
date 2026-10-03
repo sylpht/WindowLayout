@@ -186,7 +186,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.statusBarController?.flashIconSuccess()
                 self?.statusBarController?.refreshMenu()
             } else {
-                Log.warn("Hotkey ⌘⇧⌥S — save was a no-op (no windows captured)")
+                if let error = LayoutManager.shared.lastStorageError {
+                    self?.statusBarController?.showPersistenceError(error)
+                } else {
+                    Log.warn("Hotkey ⌘⇧⌥S — save was a no-op (no windows captured)")
+                }
             }
         }
 

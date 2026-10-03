@@ -17,6 +17,10 @@ class StatusBarController: NSObject, NSMenuDelegate {
             self, selector: #selector(layoutsChanged),
             name: LayoutManager.didChangeNotification, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(layoutsChanged),
+            name: LayoutManager.didEncounterErrorNotification, object: nil
+        )
     }
 
     @objc private func layoutsChanged() { refreshMenu() }
@@ -71,6 +75,13 @@ class StatusBarController: NSObject, NSMenuDelegate {
         let currentProfiles = LayoutManager.shared.profilesForCurrentSetup()
 
         menu.addItem(makeHeader(isAccessible: isAccessible, profileCount: currentProfiles.count))
+        if let error = LayoutManager.shared.lastStorageError {
+            let warning = NSMenuItem(title: L.s("Ошибка сохранения расположений", "Layout storage error", "布局存储错误"), action: nil, keyEquivalent: "")
+            warning.isEnabled = false
+            warning.image = symbol("exclamationmark.triangle")
+            warning.toolTip = error.localizedDescription
+            menu.addItem(warning)
+        }
         menu.addItem(.separator())
 
         if !isAccessible {
@@ -462,6 +473,8 @@ class StatusBarController: NSObject, NSMenuDelegate {
             if LayoutManager.shared.saveCurrentLayout(name: finalName) != nil {
                 flashIconSuccess()
                 refreshMenu()
+            } else if let error = LayoutManager.shared.lastStorageError {
+                showPersistenceError(error)
             } else {
                 // Empty capture — usually means AX permission missing or every app excluded.
                 let warn = NSAlert()
@@ -493,7 +506,9 @@ class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func deleteProfile(_ sender: NSMenuItem) {
         guard let idString = sender.representedObject as? String,
               let id = UUID(uuidString: idString) else { return }
-        LayoutManager.shared.deleteProfile(id: id)
+        if !LayoutManager.shared.deleteProfile(id: id), let error = LayoutManager.shared.lastStorageError {
+            showPersistenceError(error)
+        }
         refreshMenu()
     }
 
@@ -522,7 +537,9 @@ class StatusBarController: NSObject, NSMenuDelegate {
         if alert.runModal() == .alertFirstButtonReturn {
             let name = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty {
-                LayoutManager.shared.renameProfile(id: id, to: name)
+                if !LayoutManager.shared.renameProfile(id: id, to: name), let error = LayoutManager.shared.lastStorageError {
+                    showPersistenceError(error)
+                }
                 refreshMenu()
             }
         }
@@ -532,6 +549,20 @@ class StatusBarController: NSObject, NSMenuDelegate {
         let key = "autoRestore"
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
         refreshMenu()
+    }
+
+    func showPersistenceError(_ error: Error) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = L.s("Не удалось сохранить изменения", "Couldn't save changes", "无法保存更改")
+        alert.informativeText = L.s(
+            "Изменения не сохранены. Проверь доступ к файлу расположений и свободное место. Если файл повреждён, восстанови его из резервной копии и перезапусти WindowLayout.",
+            "Changes were not saved. Check access to the layouts file and free disk space. If the file is damaged, restore a backup and restart WindowLayout.",
+            "更改未保存。请检查布局文件的访问权限和磁盘可用空间。如果文件已损坏，请从备份恢复并重新启动 WindowLayout。"
+        ) + "\n\n" + error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L.s("Закрыть", "Close", "关闭"))
+        alert.runModal()
     }
 
     @objc private func togglePrivacyHideTitles() {
@@ -551,6 +582,8 @@ class StatusBarController: NSObject, NSMenuDelegate {
             title = L.s("Синхронизация iCloud (iCloud Drive выключен)",
                         "Sync via iCloud (iCloud Drive disabled)",
                         "iCloud 同步(iCloud Drive 未启用)")
+        } else if sync.enabled, LayoutManager.shared.lastSyncError != nil {
+            title = L.s("Синхронизация iCloud · ошибка", "Sync via iCloud · error", "iCloud 同步 · 错误")
         } else if sync.enabled, let date = sync.lastSyncedAt {
             let age = L.timeAgo(Int(Date().timeIntervalSince(date)))
             title = L.s("Синхронизация iCloud · \(count) · \(age)",
@@ -568,6 +601,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
         let item = action(title, symbol: "icloud", sel: #selector(toggleSync))
         item.state = sync.enabled ? .on : .off
         item.isEnabled = sync.isAvailable
+        item.toolTip = LayoutManager.shared.lastSyncError?.localizedDescription
 
         if sync.enabled, sync.isAvailable {
             // Submenu: reveal in Finder + folder path
@@ -589,8 +623,6 @@ class StatusBarController: NSObject, NSMenuDelegate {
         if iCloudSync.shared.enabled {
             // Push current profiles so the iCloud copy reflects current state.
             LayoutManager.shared.kickPush()
-            // Visual confirmation — same flash as save/restore so user knows it worked.
-            flashIconSuccess()
             // If folder was just created, reveal it so the user can see it exists.
             if !wasEnabled, let folder = iCloudSync.shared.syncFolderURL,
                FileManager.default.fileExists(atPath: folder.path) {

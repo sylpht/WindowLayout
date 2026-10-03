@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Preserve local and cloud profile files when reading, validation or writing fails;
+  apply local changes only after an owner-only atomic write succeeds and report errors in the UI.
+- Merge the latest cloud replica for every queued write, reject stale sync results,
+  and retain deletion history while sync is paused.
+- Resolve competing deletions and equal persisted revisions consistently.
+
 ## [1.1.3-rc.2] — 2026-09-20
 
 Diagnostic candidate `v1.1.3-rc.2` (app 1.1.3, build 6).
