@@ -15,7 +15,9 @@ swiftc \
   WindowLayout/DisplayProfile.swift \
   WindowLayout/iCloudSync.swift \
   WindowLayout/RestoreDiagnostics.swift \
+  WindowLayout/RestoreScheduler.swift \
   WindowLayout/LayoutManager.swift \
+  Tests/RestoreSchedulerTests.swift \
   Tests/main.swift \
   -sdk "$SDK" \
   -target arm64-apple-macos13.0 \

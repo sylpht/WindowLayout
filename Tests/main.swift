@@ -43,6 +43,8 @@ func tempStorageURL() -> URL {
 
 print("▶︎ Running WindowLayout tests\n")
 
+runRestoreSchedulerTests { name, body in test(name, body) }
+
 // Save & restore user-language at the end so we don't pollute defaults.
 let originalLang = L.userPreference
 

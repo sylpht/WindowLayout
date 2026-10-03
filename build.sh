@@ -27,6 +27,7 @@ SOURCES=(
   WindowLayout/DisplayProfile.swift
   WindowLayout/iCloudSync.swift
   WindowLayout/RestoreDiagnostics.swift
+  WindowLayout/RestoreScheduler.swift
   WindowLayout/LayoutManager.swift
   WindowLayout/HotKeyManager.swift
   WindowLayout/OnboardingWindowController.swift
