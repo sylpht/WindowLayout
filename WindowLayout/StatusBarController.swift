@@ -548,6 +548,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func toggleAutoRestore() {
         let key = "autoRestore"
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
+        NotificationCenter.default.post(name: RestoreScheduler.preferenceDidChangeNotification, object: nil)
         refreshMenu()
     }
 

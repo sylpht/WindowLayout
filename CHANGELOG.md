@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Merge the latest cloud replica for every queued write, reject stale sync results,
   and retain deletion history while sync is paused.
 - Resolve competing deletions and equal persisted revisions consistently.
+- Cancel pending automatic restoration when it is disabled, and reject superseded
+  attempts or attempts for a different display configuration. Manual restoration remains available.
 
 ## [1.1.3-rc.2] — 2026-09-20
 

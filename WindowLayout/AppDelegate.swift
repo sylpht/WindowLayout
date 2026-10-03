@@ -10,7 +10,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// remove the previous observer before showOnboarding() registers a new one
     /// — otherwise each language switch leaks an observer bound to a dead window.
     private var onboardingCloseObserver: NSObjectProtocol?
-    private var restoreWorkItems: [DispatchWorkItem] = []
+    private var autoRestorePreferenceObserver: NSObjectProtocol?
+    private lazy var restoreScheduler = RestoreScheduler(
+        isEnabled: { UserDefaults.standard.bool(forKey: "autoRestore") },
+        currentSignature: { DisplayConfiguration.current().signature },
+        restore: { LayoutManager.shared.autoRestore() },
+        onScheduled: { signature in
+            Log.info("Auto-restore scheduled: reason=display-change, signature=\(signature)")
+        },
+        onAttempt: { attempt in
+            let elapsed = String(format: "%.3f", attempt.elapsed)
+            Log.info("Auto-restore attempt \(attempt.number)/3: delay=\(attempt.delay)s, elapsed=\(elapsed)s, scheduledSignature=\(attempt.scheduledSignature), currentSignature=\(attempt.currentSignature)")
+        }
+    )
     /// Track signature, not just count — hot-swapping one display for another
     /// keeps the count the same but produces a different signature, and the user
     /// expects layouts for the new display to restore.
@@ -31,6 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         lastSignature = DisplayConfiguration.current().signature
         statusBarController = StatusBarController()
         observeScreenParameters()
+        observeAutoRestorePreference()
         installDisplayReconfigurationCallback()
         registerGlobalHotkeys()
         startAXPolling()
@@ -93,30 +106,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Trigger autoRestore on ANY signature change (connect, disconnect, hot-swap).
             // autoRestore() itself bails out gracefully if no profile matches the new
             // signature, so a pure resolution change with no saved layout is a free no-op.
-            guard signatureChanged, UserDefaults.standard.bool(forKey: "autoRestore") else { return }
+            guard signatureChanged else { return }
             Log.info("Display signature changed: \(oldSig) → \(newSig)")
-            self.scheduleRestoreWithRetries()
+            self.restoreScheduler.schedule(for: newSig)
         }
     }
 
-    /// Fire autoRestore at 2.5s, 6s, 14s after a reconnect. Handles apps that
-    /// are still launching (post-login / sleep) and windows that resist the
-    /// first `setFrame` call.
-    private func scheduleRestoreWithRetries() {
-        restoreWorkItems.forEach { $0.cancel() }
-        restoreWorkItems.removeAll()
-
-        let scheduledAt = Date()
-        let signature = lastSignature
-        Log.info("Auto-restore scheduled: reason=display-change, signature=\(signature)")
-        for (attempt, delay) in [2.5, 6.0, 14.0].enumerated() {
-            let item = DispatchWorkItem {
-                let elapsed = String(format: "%.3f", Date().timeIntervalSince(scheduledAt))
-                Log.info("Auto-restore attempt \(attempt + 1)/3: delay=\(delay)s, elapsed=\(elapsed)s, scheduledSignature=\(signature), currentSignature=\(DisplayConfiguration.current().signature)")
-                LayoutManager.shared.autoRestore()
-            }
-            restoreWorkItems.append(item)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    private func observeAutoRestorePreference() {
+        autoRestorePreferenceObserver = NotificationCenter.default.addObserver(
+            forName: RestoreScheduler.preferenceDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.restoreScheduler.preferenceDidChange()
         }
     }
 
@@ -160,6 +161,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Global hotkeys
 
     func applicationWillTerminate(_ notification: Notification) {
+        restoreScheduler.cancelPending()
+        if let observer = autoRestorePreferenceObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         // Drain any in-flight iCloud push before termination — saving a layout then
         // quitting immediately could otherwise lose the push if the process gets killed
         // before the async closure runs. macOS gives apps ~5s here, so a short barrier
@@ -199,12 +204,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             keyCode: UInt32(kVK_ANSI_R),
             modifiers: modCmdShiftOpt
         ) { [weak self] in
-            LayoutManager.shared.autoRestore()
+            self?.restoreScheduler.restoreManually()
             // Only flash if apply actually moved something (AX granted, profile matched).
             if LayoutManager.shared.lastApplyMovedWindows {
                 self?.statusBarController?.flashIconSuccess()
             } else {
-                Log.warn("Hotkey ⌘⇧⌥R — restore was a no-op (AX denied / Stage Manager active / no profile)")
+                Log.warn("Hotkey ⌘⇧⌥R — no immediate frame change observed; see restore diagnostics")
             }
         }
     }
