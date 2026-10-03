@@ -36,3 +36,7 @@ signing_identity.local
 .signing.local
 /release/
 homebrew-tap/
+
+# Standalone regression runners
+SyncSafetyRunner
+StorageSafetyRunner

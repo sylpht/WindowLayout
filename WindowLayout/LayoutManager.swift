@@ -12,16 +12,19 @@ class LayoutManager {
     }()
 
     static let didChangeNotification = Notification.Name("WindowLayoutLayoutsDidChange")
+    static let didEncounterErrorNotification = Notification.Name("WindowLayoutStorageError")
 
     let storageURL: URL
     private let sync: iCloudSync?
     private var profiles: [LayoutProfile] = []
+    private var initialReadError: Error?
+    private(set) var lastStorageError: Error?
+    private(set) var lastSyncError: Error?
 
     init(storageURL: URL, sync: iCloudSync? = nil) {
         self.storageURL = storageURL
         self.sync = sync
-        loadFromDisk()
-        mergeRemoteIntoLocal()
+        if loadFromDisk() { mergeRemoteIntoLocal() }
     }
 
     private static func defaultStorageURL() -> URL {
@@ -50,13 +53,15 @@ class LayoutManager {
 
     // MARK: - Mutations
 
-    func addProfile(_ profile: LayoutProfile) {
-        profiles.append(profile)
-        saveToDisk()
+    @discardableResult
+    func addProfile(_ profile: LayoutProfile) -> Bool {
+        commit(profiles + [profile])
     }
 
     @discardableResult
     func saveCurrentLayout(name: String) -> LayoutProfile? {
+        lastStorageError = initialReadError
+        guard initialReadError == nil else { return nil }
         let config = DisplayConfiguration.current()
         let screens = NSScreen.screens.map(\.frame)
         guard !screens.isEmpty else { return nil }
@@ -77,8 +82,7 @@ class LayoutManager {
             screenFrames: screens,
             isAutoSnapshot: false
         )
-        profiles.append(profile)
-        saveToDisk()
+        guard commit(profiles + [profile]) else { return nil }
         Log.info("Saved layout '\(name)' — \(windows.count) windows, signature \(config.signature)")
         return profile
     }
@@ -102,12 +106,13 @@ class LayoutManager {
         guard !windows.isEmpty else { return }
 
         let sigs = Set(config.matchingSignatures)
-        if let idx = profiles.firstIndex(where: {
+        var candidate = profiles
+        if let idx = candidate.firstIndex(where: {
             sigs.contains($0.displaySignature) && $0.isAutoSnapshot == true && $0.deletedAt == nil
         }) {
-            let keepID = profiles[idx].id
-            let keepName = profiles[idx].name
-            profiles[idx] = LayoutProfile(
+            let keepID = candidate[idx].id
+            let keepName = candidate[idx].name
+            candidate[idx] = LayoutProfile(
                 id: keepID,
                 displaySignature: config.signature,
                 name: keepName,
@@ -118,13 +123,13 @@ class LayoutManager {
             )
             // Dedupe: a legacy-and-canonical pair could coexist after a v1.0↔v1.1 round-trip.
             // After replacing one with canonical, drop any other auto-snapshot for this setup.
-            profiles.removeAll {
+            candidate.removeAll {
                 $0.id != keepID
                     && $0.isAutoSnapshot == true
                     && sigs.contains($0.displaySignature)
             }
         } else {
-            profiles.append(LayoutProfile(
+            candidate.append(LayoutProfile(
                 id: UUID(),
                 displaySignature: config.signature,
                 name: "_auto",
@@ -134,7 +139,7 @@ class LayoutManager {
                 isAutoSnapshot: true
             ))
         }
-        saveToDisk()
+        commit(candidate)
     }
 
     func restoreLayout(id: UUID) {
@@ -174,27 +179,31 @@ class LayoutManager {
         }
     }
 
-    func deleteProfile(id: UUID) {
+    @discardableResult
+    func deleteProfile(id: UUID) -> Bool {
+        var candidate = profiles
         // Tombstone instead of hard-delete so the deletion propagates via iCloud.
-        // Hard-delete only when sync is off (no need to keep history).
-        if sync?.enabled == true {
-            if let idx = profiles.firstIndex(where: { $0.id == id }) {
-                profiles[idx].deletedAt = Date()
-                profiles[idx].windows = []  // free up bytes; tombstone doesn't need data
+        // Keep deletion history while sync is paused so enabling it cannot resurrect a profile.
+        if sync != nil {
+            if let idx = candidate.firstIndex(where: { $0.id == id }) {
+                candidate[idx].deletedAt = Date()
+                candidate[idx].windows = []  // free up bytes; tombstone doesn't need data
             }
         } else {
-            profiles.removeAll { $0.id == id }
+            candidate.removeAll { $0.id == id }
         }
-        saveToDisk()
+        return commit(candidate)
     }
 
-    func renameProfile(id: UUID, to newName: String) {
-        guard let idx = profiles.firstIndex(where: { $0.id == id }) else { return }
-        profiles[idx].name = newName
+    @discardableResult
+    func renameProfile(id: UUID, to newName: String) -> Bool {
+        var candidate = profiles
+        guard let idx = candidate.firstIndex(where: { $0.id == id }) else { return false }
+        candidate[idx].name = newName
         // Bump modifiedAt so the rename wins the merge race against the same id on another Mac
         // without disturbing capturedAt (which drives the age shown in the menu).
-        profiles[idx].modifiedAt = Date()
-        saveToDisk()
+        candidate[idx].modifiedAt = Date()
+        return commit(candidate)
     }
 
     func suggestedNameForNewLayout() -> String {
@@ -428,111 +437,110 @@ class LayoutManager {
 
     // MARK: - Persistence
 
-    private func saveToDisk() {
-        let encoder = iCloudSync.makeEncoder(pretty: true)
-        guard let data = try? encoder.encode(profiles) else { return }
-        try? FileManager.default.createDirectory(
-            at: storageURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? data.write(to: storageURL, options: .atomic)
-        // Owner-only — see the same comment in iCloudSync.swift.
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
-                                               ofItemAtPath: storageURL.path)
-        // Atomically pull-merge-push on the serial queue so that two Macs writing
-        // concurrently can't lose each other's data. Without the pull-before-push,
-        // Mac A's blind push of [P1, P3] would overwrite Mac B's already-pushed
-        // [P1, P4] in iCloud — P4 would survive only in B's local copy until next save.
-        if let sync, sync.enabled {
-            let snapshot = profiles
-            sync.syncDispatchQueue.async { [weak self] in
-                // mergeAndPush does the read-merge-write atomically inside a single
-                // coordinated-write block — no other Mac can race against us.
-                let merged = sync.mergeAndPush(localSnapshot: snapshot)
-                if !Self.sameContent(merged, snapshot) {
-                    DispatchQueue.main.async { self?.adoptMergedProfiles(merged) }
+    @discardableResult
+    private func commit(_ candidate: [LayoutProfile], syncAfterCommit: Bool = true) -> Bool {
+        do {
+            if let initialReadError { throw initialReadError }
+            // Preserve a file that became unreadable while the app was running, too.
+            _ = try ProfileFileStore.read(from: storageURL)
+            try ProfileFileStore.write(candidate, to: storageURL, pretty: true)
+            profiles = candidate
+            lastStorageError = nil
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
+            if syncAfterCommit { enqueueSync(candidate) }
+            return true
+        } catch {
+            lastStorageError = error
+            Log.error("Local profile persistence failed: \(error)")
+            NotificationCenter.default.post(name: Self.didEncounterErrorNotification, object: nil)
+            return false
+        }
+    }
+
+    private func enqueueSync(_ snapshot: [LayoutProfile]) {
+        guard let sync, sync.enabled else { return }
+        let generation = sync.syncGeneration
+        sync.syncDispatchQueue.async { [weak self] in
+            guard sync.enabled, sync.syncGeneration == generation else { return }
+            let result = sync.mergeAndPush(localSnapshot: snapshot, expectedGeneration: generation)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, sync.enabled, sync.syncGeneration == generation else { return }
+                switch result {
+                case .success(let merged):
+                    self.lastSyncError = nil
+                    self.adoptMergedProfiles(merged)
+                case .failure(let error):
+                    self.recordSyncError(error)
                 }
+                NotificationCenter.default.post(name: Self.didEncounterErrorNotification, object: nil)
             }
         }
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
     }
 
-    /// Apply an externally-merged set onto current local state, re-merging with whatever
-    /// has changed locally since the snapshot was taken (e.g. a save during the async push).
+    private func recordSyncError(_ error: Error) {
+        lastSyncError = error
+        Log.error("Profile sync failed: \(error)")
+        NotificationCenter.default.post(name: Self.didEncounterErrorNotification, object: nil)
+    }
+
+    /// Re-merge with edits made locally while the cloud operation was queued.
     private func adoptMergedProfiles(_ incoming: [LayoutProfile]) {
+        guard initialReadError == nil else { return }
         let merged = iCloudSync.merge(local: profiles, remote: incoming)
         if !Self.sameContent(merged, profiles) {
-            profiles = merged
-            saveLocalOnly()
-            NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
+            commit(merged, syncAfterCommit: false)
         }
     }
 
-    private func loadFromDisk() {
-        guard let data = try? Data(contentsOf: storageURL) else { return }
-        profiles = (try? iCloudSync.makeDecoder().decode([LayoutProfile].self, from: data)) ?? []
+    private func loadFromDisk() -> Bool {
+        do {
+            profiles = try ProfileFileStore.read(from: storageURL) ?? []
+            return true
+        } catch {
+            initialReadError = error
+            lastStorageError = error
+            Log.error("Local profile load failed; preserving original file: \(error)")
+            return false
+        }
     }
 
     // MARK: - iCloud integration
 
-    /// Pull remote profiles from iCloud and merge into local. Called once at startup
-    /// and again whenever the iCloud file changes externally.
-    /// Internal (not private) so integration tests can simulate the cross-Mac flow.
     func mergeRemoteIntoLocal() {
-        guard let sync, let remote = sync.pull() else { return }
-        let merged = iCloudSync.merge(local: profiles, remote: remote)
-        let weHadSomethingNew = !Self.sameContent(merged, remote)
-        if !Self.sameContent(merged, profiles) {
-            profiles = merged
-            saveLocalOnly()
-            NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
-            Log.info("iCloud merge applied — now \(profiles.count) profiles")
-        }
-        // If local contributed items remote didn't have (e.g. another Mac's blind push
-        // wiped them from iCloud), push the merged result back so they're not lost.
-        if weHadSomethingNew, sync.enabled {
-            let snapshot = merged
-            sync.syncDispatchQueue.async { sync.push(profiles: snapshot) }
-        }
-    }
-
-    /// True if two profile sets are equivalent for sync purposes (same ids + revisions + tombstones + names).
-    static func sameContent(_ a: [LayoutProfile], _ b: [LayoutProfile]) -> Bool {
-        guard a.count == b.count else { return false }
-        let aMap = Dictionary(uniqueKeysWithValues: a.map { ($0.id, $0) })
-        for bp in b {
-            guard let ap = aMap[bp.id] else { return false }
-            if ap.name != bp.name
-                || ap.revisionTime != bp.revisionTime
-                || ap.deletedAt != bp.deletedAt {
-                return false
+        guard initialReadError == nil, let sync, sync.enabled else { return }
+        switch sync.pullResult() {
+        case .failure(let error):
+            recordSyncError(error)
+        case .success(let remote):
+            lastSyncError = nil
+            guard let remote else { return }
+            let merged = iCloudSync.merge(local: profiles, remote: remote)
+            let localContributed = !Self.sameContent(merged, remote)
+            if !Self.sameContent(merged, profiles) {
+                guard commit(merged, syncAfterCommit: false) else { return }
             }
+            if localContributed { enqueueSync(profiles) }
         }
-        return true
     }
 
-    /// Save to disk WITHOUT pushing to iCloud. Used after merging remote changes.
-    private func saveLocalOnly() {
-        let encoder = iCloudSync.makeEncoder(pretty: true)
-        guard let data = try? encoder.encode(profiles) else { return }
-        try? FileManager.default.createDirectory(
-            at: storageURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? data.write(to: storageURL, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
-                                               ofItemAtPath: storageURL.path)
+    /// Compare persisted content, including geometry and metadata, without trapping on duplicate IDs.
+    static func sameContent(_ a: [LayoutProfile], _ b: [LayoutProfile]) -> Bool {
+        guard a.count == b.count,
+              Set(a.map(\.id)).count == a.count,
+              Set(b.map(\.id)).count == b.count else { return false }
+        let lhs = a.sorted { $0.id.uuidString < $1.id.uuidString }
+        let rhs = b.sorted { $0.id.uuidString < $1.id.uuidString }
+        return zip(lhs, rhs).allSatisfy { left, right in
+            guard let leftData = iCloudSync.canonicalProfileData(left),
+                  let rightData = iCloudSync.canonicalProfileData(right) else { return false }
+            return leftData == rightData
+        }
     }
 
-    /// Called from the menu when the user just turned sync ON.
-    /// MUST pull-merge first, then push — otherwise a fresh Mac with empty local
-    /// would overwrite an already-populated iCloud file with [].
+    /// Re-read and merge on the write queue; a startup snapshot must not overwrite a newer remote file.
     func kickPush() {
-        guard let sync else { return }
-        mergeRemoteIntoLocal()  // brief main-thread block while we coordinate the read
-        let snapshot = profiles
-        // Push asynchronously on the serial queue so any concurrent save still serialises after us.
-        sync.syncDispatchQueue.async { sync.push(profiles: snapshot) }
+        guard initialReadError == nil else { return }
+        enqueueSync(profiles)
     }
 
     fileprivate func subscribeToRemoteChanges() {
@@ -546,7 +554,8 @@ class LayoutManager {
             forName: iCloudSync.didDisableNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.purgeTombstones()
+            self?.lastSyncError = nil
+            NotificationCenter.default.post(name: Self.didEncounterErrorNotification, object: nil)
         }
         NotificationCenter.default.addObserver(
             forName: iCloudSync.didDeleteRemotelyNotification,
@@ -558,14 +567,4 @@ class LayoutManager {
         }
     }
 
-    /// Hard-delete any tombstones. Called when sync is disabled — tombstones can no longer
-    /// propagate to other Macs, so keeping them just wastes disk and pollutes allProfiles.
-    private func purgeTombstones() {
-        let before = profiles.count
-        profiles.removeAll { $0.deletedAt != nil }
-        if profiles.count != before {
-            saveLocalOnly()
-            Log.info("Purged \(before - profiles.count) tombstones after sync disabled")
-        }
-    }
 }

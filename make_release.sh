@@ -65,6 +65,7 @@ SOURCES=(
   WindowLayout/Localization.swift
   WindowLayout/Geometry.swift
   WindowLayout/WindowSnapshot.swift
+  WindowLayout/ProfileFileStore.swift
   WindowLayout/DisplayProfile.swift
   WindowLayout/iCloudSync.swift
   WindowLayout/RestoreDiagnostics.swift

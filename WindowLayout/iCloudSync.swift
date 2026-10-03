@@ -88,8 +88,12 @@ final class iCloudSync: NSObject, NSFilePresenter {
         get { alwaysEnabled || UserDefaults.standard.bool(forKey: Self.prefKey) }
         set {
             if alwaysEnabled { return }  // immutable for test instances
-            let was = UserDefaults.standard.bool(forKey: Self.prefKey)
-            UserDefaults.standard.set(newValue, forKey: Self.prefKey)
+            let was = syncStateLock.withLock {
+                let previous = UserDefaults.standard.bool(forKey: Self.prefKey)
+                UserDefaults.standard.set(newValue, forKey: Self.prefKey)
+                if previous != newValue { _syncGeneration += 1 }
+                return previous
+            }
             if newValue {
                 startWatching()
             } else {
@@ -111,11 +115,21 @@ final class iCloudSync: NSObject, NSFilePresenter {
     /// while reads happen on the main thread (menu refresh).
     private let syncStateLock = NSLock()
     private var _lastSyncedAt: Date?
+    private var _syncGeneration = 0
+    var syncGeneration: Int { syncStateLock.withLock { _syncGeneration } }
     var lastSyncedAt: Date? {
         get { syncStateLock.withLock { _lastSyncedAt } }
     }
-    private func setLastSyncedAt(_ date: Date) {
-        syncStateLock.withLock { _lastSyncedAt = date }
+    private func setLastSyncedAt(_ date: Date, generation: Int) -> Bool {
+        syncStateLock.withLock {
+            guard _syncGeneration == generation && enabled else { return false }
+            _lastSyncedAt = date
+            return true
+        }
+    }
+
+    private func operationIsCurrent(_ generation: Int) -> Bool {
+        syncStateLock.withLock { _syncGeneration == generation && enabled }
     }
 
     // MARK: - Paths
@@ -164,109 +178,97 @@ final class iCloudSync: NSObject, NSFilePresenter {
 
     // MARK: - Push / pull
 
-    /// Write local profiles to the iCloud folder. macOS handles the actual upload.
-    /// Returns true on successful write.
+    /// Compatibility entry point; all writes merge the latest readable local replica.
     @discardableResult
     func push(profiles: [LayoutProfile]) -> Bool {
-        guard enabled, let url = syncFileURL else { return false }
-        ensureFolderExists()
-
-        // Compact JSON for iCloud — pretty-printing bloats sync diffs ~3x with no benefit.
-        let encoder = Self.makeEncoder(pretty: false)
-        guard let data = try? encoder.encode(profiles) else { return false }
-
-        let coordinator = NSFileCoordinator(filePresenter: self)
-        var coordError: NSError?
-        var success = false
-        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordError) { writeURL in
-            do {
-                try data.write(to: writeURL, options: .atomic)
-                try? FileManager.default.setAttributes([.posixPermissions: 0o600],
-                                                       ofItemAtPath: writeURL.path)
-                setLastSyncedAt(Date())
-                success = true
-                Log.info("iCloud push: \(profiles.count) profiles → \(url.lastPathComponent)")
-            } catch {
-                Log.error("iCloud push failed: \(error)")
-            }
-        }
-        if let e = coordError { Log.error("iCloud push coordination failed: \(e)") }
-        return success
+        if case .success = mergeAndPush(localSnapshot: profiles) { return true }
+        return false
     }
 
     /// Reject any pulled file larger than this. A normal user has at most a few KB.
     /// Defends against accidental or malicious giant files (10MB+) DoS'ing the parse.
-    static let maxPulledBytes = 5 * 1024 * 1024  // 5 MB
+    static let maxPulledBytes = ProfileFileStore.defaultMaxBytes
 
-    /// Atomic pull-merge-push inside a single coordinated write block.
-    /// NSFileCoordinator serialises writes across all clients (this process AND finderd
-    /// AND other processes), so the read-merge-write sequence inside the block can't
-    /// race against another Mac's concurrent push.
-    /// Returns the merged profile set so the caller can update local state.
+    enum SyncError: LocalizedError {
+        case unavailable, superseded, coordinationDidNotRun
+
+        var errorDescription: String? {
+            switch self {
+            case .unavailable: return L.s("iCloud Drive недоступен.", "iCloud Drive is unavailable.", "iCloud 云盘不可用。")
+            case .superseded: return L.s("Синхронизация отменена из-за изменения настроек.", "The sync operation was cancelled because sync settings changed.", "同步设置已更改，操作已取消。")
+            case .coordinationDidNotRun: return L.s("Не удалось выполнить согласованную операцию с файлом.", "The coordinated file operation did not run.", "未能执行协调的文件操作。")
+            }
+        }
+    }
+
+    /// Coordinate the read-merge-write against other writers of this local replica.
+    /// This is not a distributed lock across Macs or an iCloud conflict-version resolver.
+    /// Only successful writes return profiles that the caller may adopt locally.
     @discardableResult
-    func mergeAndPush(localSnapshot: [LayoutProfile]) -> [LayoutProfile] {
-        guard enabled, let url = syncFileURL else { return localSnapshot }
-        ensureFolderExists()
+    func mergeAndPush(localSnapshot: [LayoutProfile], expectedGeneration: Int? = nil) -> Result<[LayoutProfile], Error> {
+        let generation = expectedGeneration ?? syncGeneration
+        guard operationIsCurrent(generation) else { return .failure(SyncError.superseded) }
+        guard let url = syncFileURL else { return .failure(SyncError.unavailable) }
+        do {
+            try ProfileFileStore.validate(localSnapshot)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        } catch { return .failure(error) }
 
-        var result = localSnapshot
+        var result: Result<[LayoutProfile], Error> = .failure(SyncError.coordinationDidNotRun)
         let coordinator = NSFileCoordinator(filePresenter: self)
         var coordError: NSError?
         coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordError) { writeURL in
-            // Read whatever is currently in iCloud (may be empty if file missing).
-            var remote: [LayoutProfile] = []
-            if FileManager.default.fileExists(atPath: writeURL.path),
-               let data = try? Data(contentsOf: writeURL) {
-                if data.count > Self.maxPulledBytes {
-                    Log.error("iCloud file too large (\(data.count) bytes > \(Self.maxPulledBytes)) — refusing to parse")
-                } else if let parsed = try? Self.makeDecoder().decode([LayoutProfile].self, from: data) {
-                    remote = parsed
-                }
-            }
-            // Merge local with whatever the OTHER Mac just put there.
-            let merged = Self.merge(local: localSnapshot, remote: remote)
-            result = merged
-            // Write the merged result back atomically.
-            let encoder = Self.makeEncoder(pretty: false)
-            guard let outData = try? encoder.encode(merged) else { return }
             do {
-                try outData.write(to: writeURL, options: .atomic)
-                // Restrict to owner read/write — window titles can contain sensitive data
-                // and the file's default mode (644) lets any local process read them.
-                try? FileManager.default.setAttributes([.posixPermissions: 0o600],
-                                                       ofItemAtPath: writeURL.path)
-                setLastSyncedAt(Date())
+                guard operationIsCurrent(generation) else { throw SyncError.superseded }
+                let remote = try ProfileFileStore.read(from: writeURL) ?? []
+                let merged = Self.merge(local: localSnapshot, remote: remote)
+                guard operationIsCurrent(generation) else { throw SyncError.superseded }
+                try ProfileFileStore.write(merged, to: writeURL, pretty: false)
+                guard setLastSyncedAt(Date(), generation: generation) else { throw SyncError.superseded }
+                result = .success(merged)
                 Log.info("iCloud mergeAndPush: \(merged.count) profiles (remote had \(remote.count), local snapshot had \(localSnapshot.count))")
             } catch {
-                Log.error("iCloud mergeAndPush write failed: \(error)")
+                result = .failure(error)
+                Log.error("iCloud mergeAndPush failed: \(error)")
             }
         }
-        if let e = coordError { Log.error("iCloud mergeAndPush coordination failed: \(e)") }
+        if let e = coordError {
+            Log.error("iCloud mergeAndPush coordination failed: \(e)")
+            return .failure(e)
+        }
         return result
     }
 
     /// Read remote profiles from iCloud. Returns nil if file doesn't exist yet or parse fails.
     func pull() -> [LayoutProfile]? {
-        guard enabled, let url = syncFileURL,
-              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        try? pullResult().get()
+    }
+
+    func pullResult() -> Result<[LayoutProfile]?, Error> {
+        let generation = syncGeneration
+        guard operationIsCurrent(generation) else { return .failure(SyncError.superseded) }
+        guard let url = syncFileURL else { return .failure(SyncError.unavailable) }
 
         let coordinator = NSFileCoordinator(filePresenter: self)
         var coordError: NSError?
-        var result: [LayoutProfile]?
+        var result: Result<[LayoutProfile]?, Error> = .failure(SyncError.coordinationDidNotRun)
 
         coordinator.coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
-            guard let data = try? Data(contentsOf: readURL) else { return }
-            if data.count > Self.maxPulledBytes {
-                Log.error("iCloud file too large (\(data.count) bytes) — refusing to parse")
-                return
-            }
-            result = try? Self.makeDecoder().decode([LayoutProfile].self, from: data)
-            if result != nil {
-                setLastSyncedAt(Date())
-            } else {
-                Log.error("iCloud pull: failed to decode \(data.count) bytes — corrupt file")
+            do {
+                guard operationIsCurrent(generation) else { throw SyncError.superseded }
+                let profiles = try ProfileFileStore.read(from: readURL)
+                guard operationIsCurrent(generation) else { throw SyncError.superseded }
+                if profiles != nil, !setLastSyncedAt(Date(), generation: generation) { throw SyncError.superseded }
+                result = .success(profiles)
+            } catch {
+                result = .failure(error)
+                Log.error("iCloud pull failed: \(error)")
             }
         }
-        if let e = coordError { Log.error("iCloud pull coordination failed: \(e)") }
+        if let e = coordError {
+            Log.error("iCloud pull coordination failed: \(e)")
+            return .failure(e)
+        }
         return result
     }
 
@@ -278,8 +280,7 @@ final class iCloudSync: NSObject, NSFilePresenter {
     ///   - Garbage-collect tombstones older than 30 days.
     static func merge(local: [LayoutProfile], remote: [LayoutProfile]) -> [LayoutProfile] {
         var byID: [UUID: LayoutProfile] = [:]
-        for p in local { byID[p.id] = p }
-        for p in remote {
+        for p in local + remote {
             if let existing = byID[p.id] {
                 byID[p.id] = newer(existing, p)
             } else {
@@ -290,15 +291,34 @@ final class iCloudSync: NSObject, NSFilePresenter {
         return byID.values.filter { p in
             guard let d = p.deletedAt else { return true }
             return d > cutoff
-        }
+        }.sorted { $0.id.uuidString < $1.id.uuidString }
     }
 
     private static func newer(_ a: LayoutProfile, _ b: LayoutProfile) -> LayoutProfile {
         // Tombstones always win — we never want a delete to be overwritten by a stale save.
         if a.deletedAt != nil && b.deletedAt == nil { return a }
         if b.deletedAt != nil && a.deletedAt == nil { return b }
+        if let aDeleted = a.deletedAt, let bDeleted = b.deletedAt,
+           persistedDate(aDeleted) != persistedDate(bDeleted) {
+            return persistedDate(aDeleted) > persistedDate(bDeleted) ? a : b
+        }
         // Use revisionTime (max of capturedAt and modifiedAt) so renames also win the race.
-        return a.revisionTime >= b.revisionTime ? a : b
+        let aRevision = persistedDate(a.revisionTime), bRevision = persistedDate(b.revisionTime)
+        if aRevision != bRevision { return aRevision > bRevision ? a : b }
+        // The persisted representation also resolves ties identically on both Macs,
+        // including a live Date with precision that the on-disk codec cannot retain.
+        let aData = canonicalProfileData(a) ?? Data(), bData = canonicalProfileData(b) ?? Data()
+        return aData.lexicographicallyPrecedes(bData) ? b : a
+    }
+
+    static func canonicalProfileData(_ profile: LayoutProfile) -> Data? {
+        let encoder = makeEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(profile)
+    }
+
+    private static func persistedDate(_ date: Date) -> Date {
+        dateFormatter.date(from: dateFormatter.string(from: date)) ?? date
     }
 
     // MARK: - NSFilePresenter
