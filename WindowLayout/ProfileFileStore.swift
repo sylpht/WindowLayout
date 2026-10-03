@@ -58,8 +58,11 @@ enum ProfileFileStore {
 
     /// Stage in the destination directory with mode 0600 before writing any data.
     /// A single rename commits the complete file; failures leave the old file intact.
+    /// A commit guard can serialize the final replacement with cancellation without
+    /// holding the caller's lock during encoding or file synchronization.
     static func write(_ profiles: [LayoutProfile], to url: URL, pretty: Bool,
-                      maxBytes: Int = defaultMaxBytes) throws {
+                      maxBytes: Int = defaultMaxBytes,
+                      commit: ((_ replace: () throws -> Void) throws -> Void)? = nil) throws {
         guard maxBytes >= 0 else { throw StoreError.invalidByteLimit }
         try validate(profiles)
         let data = try iCloudSync.makeEncoder(pretty: pretty).encode(profiles)
@@ -78,7 +81,11 @@ enum ProfileFileStore {
         try handle.write(contentsOf: data)
         try handle.synchronize()
         try handle.close()
-        guard rename(staged.path, url.path) == 0 else { throw posixError() }
+        let replace = {
+            guard rename(staged.path, url.path) == 0 else { throw posixError() }
+        }
+        if let commit { try commit(replace) }
+        else { try replace() }
     }
 
     static func validate(_ profiles: [LayoutProfile]) throws {

@@ -70,30 +70,41 @@ final class iCloudSync: NSObject, NSFilePresenter {
     /// Override for tests: when true, `enabled` is forced on regardless of UserDefaults
     /// (and toggling has no effect).
     private let alwaysEnabled: Bool
+    private let preferences: UserDefaults
+    /// Test seam after staging and before the final replacement guard.
+    private let beforeFileReplacement: (() throws -> Void)?
 
     /// Production initialiser for the singleton.
     override convenience init() { self.init(syncFolderURL: nil, alwaysEnabled: false) }
 
-    /// Test initialiser — point at a temp folder, force enabled, bypass UserDefaults.
-    init(syncFolderURL: URL?, alwaysEnabled: Bool) {
+    /// Tests can use a temporary folder, injected preferences, and a staging barrier.
+    init(syncFolderURL: URL?, alwaysEnabled: Bool, preferences: UserDefaults = .standard,
+         beforeFileReplacement: (() throws -> Void)? = nil) {
         self.injectedFolder = syncFolderURL
         self.alwaysEnabled = alwaysEnabled
+        self.preferences = preferences
+        self.beforeFileReplacement = beforeFileReplacement
+        self._enabled = alwaysEnabled || preferences.bool(forKey: Self.prefKey)
         super.init()
-        // Test instances never start watching — tests poll directly via push/pull.
+        // Fixed-enabled test fixtures poll directly instead of starting a presenter.
         if !alwaysEnabled, enabled { startWatching() }
     }
 
     /// User-toggle in menu. Persisted in UserDefaults.
     var enabled: Bool {
-        get { alwaysEnabled || UserDefaults.standard.bool(forKey: Self.prefKey) }
+        get { syncStateLock.withLock { _enabled } }
         set {
             if alwaysEnabled { return }  // immutable for test instances
             let was = syncStateLock.withLock {
-                let previous = UserDefaults.standard.bool(forKey: Self.prefKey)
-                UserDefaults.standard.set(newValue, forKey: Self.prefKey)
+                let previous = _enabled
+                _enabled = newValue
                 if previous != newValue { _syncGeneration += 1 }
+                if !newValue { _lastSyncedAt = nil }
                 return previous
             }
+            // Preference observers and notifications may call back into this instance.
+            // Persist only after releasing the same lock used by the final file commit.
+            preferences.set(newValue, forKey: Self.prefKey)
             if newValue {
                 startWatching()
             } else {
@@ -114,6 +125,7 @@ final class iCloudSync: NSObject, NSFilePresenter {
     /// Read/written under `syncStateLock` because writes happen on the file-coordinator queue
     /// while reads happen on the main thread (menu refresh).
     private let syncStateLock = NSLock()
+    private var _enabled: Bool
     private var _lastSyncedAt: Date?
     private var _syncGeneration = 0
     var syncGeneration: Int { syncStateLock.withLock { _syncGeneration } }
@@ -122,14 +134,14 @@ final class iCloudSync: NSObject, NSFilePresenter {
     }
     private func setLastSyncedAt(_ date: Date, generation: Int) -> Bool {
         syncStateLock.withLock {
-            guard _syncGeneration == generation && enabled else { return false }
+            guard _syncGeneration == generation && _enabled else { return false }
             _lastSyncedAt = date
             return true
         }
     }
 
     private func operationIsCurrent(_ generation: Int) -> Bool {
-        syncStateLock.withLock { _syncGeneration == generation && enabled }
+        syncStateLock.withLock { _syncGeneration == generation && _enabled }
     }
 
     // MARK: - Paths
@@ -223,8 +235,14 @@ final class iCloudSync: NSObject, NSFilePresenter {
                 let remote = try ProfileFileStore.read(from: writeURL) ?? []
                 let merged = Self.merge(local: localSnapshot, remote: remote)
                 guard operationIsCurrent(generation) else { throw SyncError.superseded }
-                try ProfileFileStore.write(merged, to: writeURL, pretty: false)
-                guard setLastSyncedAt(Date(), generation: generation) else { throw SyncError.superseded }
+                try ProfileFileStore.write(merged, to: writeURL, pretty: false) { replace in
+                    try self.beforeFileReplacement?()
+                    try self.syncStateLock.withLock {
+                        guard self._syncGeneration == generation && self._enabled else { throw SyncError.superseded }
+                        try replace()
+                        self._lastSyncedAt = Date()
+                    }
+                }
                 result = .success(merged)
                 Log.info("iCloud mergeAndPush: \(merged.count) profiles (remote had \(remote.count), local snapshot had \(localSnapshot.count))")
             } catch {

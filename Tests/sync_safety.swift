@@ -13,6 +13,24 @@ enum L {
     static func s(_ ru: String, _ en: String, _ zh: String? = nil) -> String { en }
 }
 
+final class MemorySyncPreferences: UserDefaults, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    override func bool(forKey defaultName: String) -> Bool { lock.withLock { value } }
+    override func set(_ value: Any?, forKey defaultName: String) {
+        lock.withLock { self.value = value as? Bool ?? false }
+    }
+}
+
+final class SyncResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Result<[LayoutProfile], Error>?
+    func set(_ result: Result<[LayoutProfile], Error>) { lock.withLock { value = result } }
+    func get() -> Result<[LayoutProfile], Error>? { lock.withLock { value } }
+}
+
+enum SyncTestError: Error { case timedOut }
+
 @main
 struct SyncSafetyTests {
     static func profile(_ name: String) -> LayoutProfile {
@@ -32,6 +50,52 @@ struct SyncSafetyTests {
         return false
     }
 
+    static func cancelStagedWrite(reenable: Bool) throws -> Bool {
+        try withSync { _, url in
+            let original = try iCloudSync.makeEncoder().encode([profile("Remote")])
+            try original.write(to: url)
+            let preferences = MemorySyncPreferences()
+            preferences.set(true, forKey: iCloudSync.prefKey)
+            let staged = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0)
+            let finished = DispatchSemaphore(value: 0), toggled = DispatchSemaphore(value: 0)
+            let result = SyncResultBox()
+            let sync = iCloudSync(syncFolderURL: url.deletingLastPathComponent(), alwaysEnabled: false,
+                                 preferences: preferences, beforeFileReplacement: {
+                staged.signal()
+                guard resume.wait(timeout: .now() + 5) == .success else { throw SyncTestError.timedOut }
+            })
+            defer { resume.signal(); sync.shutdown() }
+            let generation = sync.syncGeneration
+            sync.syncDispatchQueue.async {
+                result.set(sync.mergeAndPush(localSnapshot: [profile("Local")], expectedGeneration: generation))
+                finished.signal()
+            }
+            guard staged.wait(timeout: .now() + 5) == .success else { throw SyncTestError.timedOut }
+            let directory = url.deletingLastPathComponent()
+            let stagedFiles = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            let hasStagedFile = stagedFiles.contains { $0.hasPrefix(".profiles-") && $0.hasSuffix(".tmp") }
+            DispatchQueue.global().async {
+                sync.enabled = false
+                if reenable { sync.enabled = true }
+                toggled.signal()
+            }
+            // If staging wrongly holds the state lock, release the writer on timeout
+            // so the test fails instead of deadlocking the runner.
+            let toggleCompletedBeforeCommit = toggled.wait(timeout: .now() + 2) == .success
+            resume.signal()
+            guard finished.wait(timeout: .now() + 5) == .success else { throw SyncTestError.timedOut }
+            if !toggleCompletedBeforeCommit {
+                guard toggled.wait(timeout: .now() + 5) == .success else { throw SyncTestError.timedOut }
+                return false
+            }
+            guard let outcome = result.get(), case .failure(let error) = outcome,
+                  let syncError = error as? iCloudSync.SyncError, case .superseded = syncError else { return false }
+            let remaining = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            return try hasStagedFile && Data(contentsOf: url) == original && remaining == ["profiles.json"]
+                && sync.lastSyncedAt == nil && sync.enabled == reenable
+        }
+    }
+
     static func main() {
         var passed = 0, failed = 0
         func test(_ name: String, _ body: () throws -> Bool) {
@@ -46,7 +110,8 @@ struct SyncSafetyTests {
                 let local = profile("Local")
                 guard try sync.pullResult().get() == nil else { return false }
                 let written = try sync.mergeAndPush(localSnapshot: [local]).get()
-                return written.map(\.id) == [local.id] && sync.pull()?.map(\.id) == [local.id]
+                return written.map(\.id) == [local.id] && sync.lastSyncedAt != nil
+                    && sync.pull()?.map(\.id) == [local.id]
             }
         }
         test("corrupt remote bytes survive a save") {
@@ -127,6 +192,12 @@ struct SyncSafetyTests {
                                                expectedGeneration: sync.syncGeneration - 1)
                 return try isFailure(result) && Data(contentsOf: url) == original && sync.lastSyncedAt == nil
             }
+        }
+        test("disabling sync after staging cancels replacement without blocking the toggle") {
+            try cancelStagedWrite(reenable: false)
+        }
+        test("OFF then ON after staging cannot commit an older sync generation") {
+            try cancelStagedWrite(reenable: true)
         }
         test("atomic store uses owner-only mode and preserves old file on invalid output") {
             try withSync { _, url in
