@@ -18,9 +18,11 @@ swiftc \
   WindowLayout/RestoreDiagnostics.swift \
   WindowLayout/RestoreScheduler.swift \
   WindowLayout/RestoreLifecycle.swift \
+  WindowLayout/SnapshotMatchPool.swift \
   WindowLayout/LayoutManager.swift \
   Tests/RestoreSchedulerTests.swift \
   Tests/RestoreLifecycleTests.swift \
+  Tests/SnapshotMatchPoolTests.swift \
   Tests/main.swift \
   -sdk "$SDK" \
   -target arm64-apple-macos13.0 \
@@ -46,6 +48,7 @@ swiftc \
   WindowLayout/DisplayProfile.swift \
   WindowLayout/iCloudSync.swift \
   WindowLayout/RestoreDiagnostics.swift \
+  WindowLayout/SnapshotMatchPool.swift \
   WindowLayout/LayoutManager.swift \
   Tests/storage_safety/main.swift \
   -sdk "$SDK" -target arm64-apple-macos13.0 -o StorageSafetyRunner

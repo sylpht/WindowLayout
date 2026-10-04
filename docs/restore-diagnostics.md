@@ -40,7 +40,7 @@ The file is `~/Library/Logs/WindowLayout/WindowLayout.log` (with one rotated `.l
 | `Auto-restore attempt` | Planned delay and actual elapsed wall-clock time for each of the three existing retries |
 | `notRunning`, `notRegular`, `excluded`, `axWindowsUnavailable` | Why saved records for an app were not processed |
 | `titleMismatch` | No remaining snapshot matched the live title; this can also reflect a failed AXTitle read |
-| `unconsumedSaved` | Saved records for which no setter attempt was made in this app process |
+| `unconsumedSaved` | Saved records not matched to a live window across all running processes with this bundle ID; a matched record stays consumed even if placement or an AX write subsequently fails |
 | `sizeAX`, `positionAX` | AX write return codes; zero means the request returned success, not that the target was reached |
 | `immediateChanged` | Frame changed by more than one point between reads immediately before/after the writes; unknown if either read is missing |
 | `immediateTargetMatch` | Immediate frame readback matches the requested target within one point; unknown if unavailable |
@@ -50,6 +50,12 @@ An observed change can be partial or off target. An unchanged immediate readback
 can precede a delayed move. Observe the final window positions as well as the log.
 The added reads and logs can affect timing, so this build is intended for diagnosis.
 The existing three restore attempts at 2.5, 6 and 14 seconds are intentional.
+
+`apply app=… scope=bundle` summaries combine all running processes of one app;
+`saved` is counted once, `processes` counts inspected processes, and
+`axWindowFailures` counts processes whose windows could not be enumerated.
+Per-window lines still include the PID. A saved record is consumed at most once
+per restore, including when several processes share a bundle ID.
 
 The new messages omit window titles and document paths. Existing profile-name
 messages remain, and display identities and app bundle IDs are included. Before
