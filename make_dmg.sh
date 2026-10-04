@@ -25,8 +25,10 @@ fi
 WORKDIR=$(mktemp -d /tmp/WindowLayoutDMG.XXXXXX)
 MOUNT="$WORKDIR/mounted"
 MOUNTED=0
+PUBLISH_DMG=""
 cleanup() {
     local result=$?
+    if [ -n "$PUBLISH_DMG" ]; then rm -f "$PUBLISH_DMG"; fi
     if [ "$MOUNTED" = 1 ]; then
         if ! hdiutil detach "$MOUNT" >/dev/null 2>&1; then
             echo "Could not detach $MOUNT; temporary files retained in $WORKDIR." >&2
@@ -60,7 +62,18 @@ codesign --verify --deep --strict --verbose=2 "$MOUNT/WindowLayout.app"
 diff -qr "$STAGE/WindowLayout.app" "$MOUNT/WindowLayout.app"
 hdiutil detach "$MOUNT" >/dev/null
 MOUNTED=0
-mv -f "$TMP_DMG" "$DMG"
+# The checkout can be on another filesystem from /tmp. Copy to a temporary file
+# beside the destination first, so the final rename cannot fall back to copying.
+PUBLISH_DMG=$(mktemp "./.${DMG}.XXXXXX")
+cp "$TMP_DMG" "$PUBLISH_DMG"
+cmp "$TMP_DMG" "$PUBLISH_DMG"
+chmod 644 "$PUBLISH_DMG"
+if [ -d "$DMG" ]; then
+    echo "Cannot replace $DMG: the destination is a directory." >&2
+    exit 1
+fi
+mv -f "$PUBLISH_DMG" "$DMG"
+PUBLISH_DMG=""
 
 echo "✓ $DMG ready (embedded app signature verified)"
 ls -lh "$DMG"

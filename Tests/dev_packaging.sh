@@ -32,7 +32,33 @@ fingerprint() {
 case "$name" in
     mktemp)
         template=${@: -1}
-        /usr/bin/mktemp -d "$DEV_TEST_CASE/tmp/${template##*/}"
+        case "$template" in
+            /tmp/*) template="$DEV_TEST_CASE/tmp/${template##*/}" ;;
+            ./*) template="$DEV_TEST_CASE/${template#./}" ;;
+            *) exit 105 ;;
+        esac
+        if [ "$1" = -d ]; then /usr/bin/mktemp -d "$template"; else /usr/bin/mktemp "$template"; fi
+        ;;
+    cp)
+        case "${@: -1}" in
+            "$DEV_TEST_CASE"/.WindowLayout.dmg.*)
+                case "${DEV_TEST_FAIL_PUBLISH_COPY:-0}" in
+                    1) printf 'partial copy\n' > "${@: -1}"; exit 106 ;;
+                    2) printf 'damaged copy\n' > "${@: -1}"; exit 0 ;;
+                esac
+                ;;
+        esac
+        /bin/cp "$@"
+        ;;
+    mv)
+        source=${@: -2:1}
+        destination=${@: -1}
+        # Emulate a failed cross-filesystem mv removing the old destination first.
+        if [[ "$source" == "$DEV_TEST_CASE/tmp/"* ]] && [ "${DEV_TEST_FAIL_PUBLISH_COPY:-0}" != 0 ]; then
+            printf 'partial copy\n' > "$destination"
+            exit 107
+        fi
+        /bin/mv "$@"
         ;;
     xcrun) printf '/fake-sdk\n' ;;
     swiftc|lipo)
@@ -156,7 +182,7 @@ esac
 STUB
     chmod +x "$FIXTURE/bin/tool" || return 1
     local name
-    for name in mktemp xcrun swiftc lipo xattr ditto codesign hdiutil rm pkill open pgrep sleep; do
+    for name in mktemp cp mv xcrun swiftc lipo xattr ditto codesign hdiutil rm pkill open pgrep sleep; do
         ln -s tool "$FIXTURE/bin/$name" || return 1
     done
 }
@@ -169,6 +195,7 @@ run_script() (
         DEV_TEST_OFFLINE="${OFFLINE:-0}" \
         DEV_TEST_EXIT_POLLS="${EXIT_POLLS:-0}" \
         DEV_TEST_FAIL_PROCESS_QUERY="${FAIL_PROCESS_QUERY:-0}" \
+        DEV_TEST_FAIL_PUBLISH_COPY="${FAIL_PUBLISH_COPY:-0}" \
         DEV_TEST_FAIL_SIGN="${FAIL_SIGN:-0}" \
         DEV_TEST_FAIL_IMAGE_VERIFY="${FAIL_IMAGE_VERIFY:-0}" \
         DEV_TEST_TAMPER_IMAGE="${TAMPER_IMAGE:-0}" \
@@ -240,6 +267,7 @@ package_signed() {
     [ "$(grep -c '^codesign --force' "$FIXTURE/calls")" = 1 ] \
         && grep -q '^hdiutil attach -readonly -nobrowse' "$FIXTURE/calls" \
         && grep -q '^hdiutil detach ' "$FIXTURE/calls" \
+        && grep -q "^mv -f $FIXTURE/.WindowLayout.dmg." "$FIXTURE/calls" \
         && assert_no_lifecycle && [ -z "$(ls -A "$FIXTURE/tmp")" ]
 }
 
@@ -275,6 +303,28 @@ reject_image() {
     esac
     if run_script make_dmg.sh; then return 1; fi
     assert_old_dmg && assert_no_lifecycle && [ -z "$(ls -A "$FIXTURE/tmp")" ]
+}
+
+publication_failure() {
+    fixture || return 1
+    run_script build.sh --no-install || return 1
+    printf 'previous DMG\n' > "$FIXTURE/WindowLayout.dmg"
+    FAIL_PUBLISH_COPY=$1
+    if run_script make_dmg.sh; then return 1; fi
+    assert_old_dmg && assert_no_lifecycle && [ -z "$(ls -A "$FIXTURE/tmp")" ] \
+        && ! compgen -G "$FIXTURE/.WindowLayout.dmg.*" >/dev/null
+}
+
+publication_directory() {
+    fixture || return 1
+    run_script build.sh --no-install || return 1
+    mkdir "$FIXTURE/WindowLayout.dmg"
+    printf 'directory marker\n' > "$FIXTURE/WindowLayout.dmg/marker"
+    if run_script make_dmg.sh; then return 1; fi
+    [ "$(cat "$FIXTURE/WindowLayout.dmg/marker")" = 'directory marker' ] \
+        && ! grep -q '^mv ' "$FIXTURE/calls" \
+        && assert_no_lifecycle && [ -z "$(ls -A "$FIXTURE/tmp")" ] \
+        && ! compgen -G "$FIXTURE/.WindowLayout.dmg.*" >/dev/null
 }
 
 sign_failure() {
@@ -361,6 +411,9 @@ test_case 'modified dev app is rejected without replacing an existing DMG' rejec
 test_case 'DMG integrity failure preserves prior output and cleans staging' reject_image checksum
 test_case 'tampered app inside DMG is rejected and cleaned up' reject_image app
 test_case 'DMG with a different signed payload is rejected' reject_image signature
+test_case 'failed publication copy preserves previous DMG and cleans partial file' publication_failure 1
+test_case 'corrupted publication copy preserves previous DMG and cleans partial file' publication_failure 2
+test_case 'directory at DMG destination is preserved without moving output inside it' publication_directory
 test_case 'signing failure preserves old dev app and leaves running apps alone' sign_failure
 test_case 'default build waits for slow termination before installing and launching' default_install
 test_case 'termination timeout preserves the installed app and skips launch' termination_timeout
