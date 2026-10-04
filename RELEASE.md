@@ -62,6 +62,8 @@ Before publishing, date the matching `CHANGELOG.md` entry and prepare
 ./run_tests.sh
 ./make_release.sh --tag v1.1.3-rc.3 --dry-run
 ./make_release.sh --tag v1.1.3-rc.3
+(cd release && shasum -a 256 WindowLayout.dmg > SHA256SUMS)
+(cd release && shasum -a 256 -c SHA256SUMS)
 ```
 
 The dry run validates the tag and prints the same publish command as the build,
@@ -95,13 +97,14 @@ git push origin v1.1.3-rc.3
 ## 4. GitHub Release
 
 ```bash
-gh release create v1.1.3-rc.3 release/WindowLayout.dmg \
+gh release create v1.1.3-rc.3 release/WindowLayout.dmg release/SHA256SUMS \
   --verify-tag --prerelease --latest=false \
   --title "v1.1.3-rc.3" --notes-file release-notes.md
 ```
 
-The builder prints this command using the complete supplied tag even if no
-Homebrew checkout exists. For a stable tag it omits the prerelease flags.
+The builder prints the base publish command using the complete supplied tag even
+if no Homebrew checkout exists. Include the checksum asset as shown above. For a
+stable tag the builder omits the prerelease flags.
 
 ## 5. Stable releases only: publish the Homebrew update
 
@@ -124,9 +127,13 @@ git push
 
 ```bash
 gh release view v1.1.3-rc.3 --json isDraft,isPrerelease,tagName,assets
-curl -fL --output /tmp/WindowLayout-rc-check.dmg \
+RC_CHECK_DIR=$(mktemp -d /tmp/WindowLayout-rc-check.XXXXXX)
+curl -fL --output "$RC_CHECK_DIR/WindowLayout.dmg" \
   https://github.com/sylpht/WindowLayout/releases/download/v1.1.3-rc.3/WindowLayout.dmg
-shasum -a 256 release/WindowLayout.dmg /tmp/WindowLayout-rc-check.dmg
+curl -fL --output "$RC_CHECK_DIR/SHA256SUMS" \
+  https://github.com/sylpht/WindowLayout/releases/download/v1.1.3-rc.3/SHA256SUMS
+(cd "$RC_CHECK_DIR" && shasum -a 256 -c SHA256SUMS)
+cmp release/WindowLayout.dmg "$RC_CHECK_DIR/WindowLayout.dmg"
 ```
 
 Checksums must match. An RC must show `isPrerelease: true`; the latest stable
