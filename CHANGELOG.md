@@ -7,9 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3-rc.3] — 2026-10-04
+
+Diagnostic candidate `v1.1.3-rc.3` (app 1.1.3, build 7) for
+[issue #2](https://github.com/sylpht/WindowLayout/issues/2). The affected
+two-external-monitor setup has not been reproduced; the issue remains open.
+
 ### Fixed
+- Convert AppKit display rectangles into AX coordinates using the primary display;
+  new layouts identify target displays by hardware serial or UUID instead of array order.
+- When a sole serial-zero model changes its UUID between connections, use an
+  explicitly logged unique-model fallback. This is an inference, not proof of physical identity.
+- Skip ambiguous or unavailable target displays. Legacy layouts use their original
+  frame geometry only when it still maps uniquely; save a fresh layout for changed topology.
+- Consume saved windows once across all processes sharing an app bundle ID and
+  aggregate their restore diagnostics without repeating saved totals.
 - Route the restore hotkey through the same explicit manual policy as the menu;
   manual requests remain available with Stage Manager and supersede automatic retries.
+- Warn on unresolved manual placement instead of flashing success for partial restoration.
 - Schedule automatic restoration after restart and system wake even when the display
   signature is unchanged; cancel pending work before sleep and on Accessibility revocation.
 - Preserve local and cloud profile files when reading, validation or writing fails;
@@ -19,6 +34,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resolve competing deletions and equal persisted revisions consistently.
 - Cancel pending automatic restoration when it is disabled, and reject superseded
   attempts or attempts for a different display configuration. Manual restoration remains available.
+- Export the verified signed development bundle and verify the DMG payload. Packaging
+  can run without installing or launching the app; offline development signing avoids
+  secure-timestamp requests while Developer ID signing retains its timestamp requirement.
+- Wait for the old development app to exit before replacing its installed bundle;
+  stop installation if termination times out or process inspection fails.
+
+### Validation and limitations
+- 146 Swift checks and 46 shell regressions pass; the app builds for Apple Silicon
+  and Intel. Shell checks cover release policy and development packaging.
+- Live AX restoration, Stage Manager, restart, sleep/wake and two-external-monitor
+  reconnect have not been exercised for this candidate.
+- Space membership is not restored. Identical serial-zero displays remain ambiguous
+  even with different connector UUIDs and after resaving. Immediate AX readback does not prove
+  that the final position persisted.
+- The diagnostic DMG uses ad-hoc signing and is not notarized. Existing prereleases
+  and the stable Homebrew channel remain unchanged.
 
 ## [1.1.3-rc.2] — 2026-09-20
 

@@ -1,11 +1,11 @@
 # Release procedure
 
 How to ship a new version of WindowLayout. The numeric app bundle version and
-the GitHub release tag are separate: app `1.1.3`, build `6` can be distributed as
-`v1.1.3-rc.2`. The builder requires an explicit `--tag`; it never infers a stable
+the GitHub release tag are separate: app `1.1.3`, build `7` can be distributed as
+`v1.1.3-rc.3`. The builder requires an explicit `--tag`; it never infers a stable
 release from `Info.plist`.
 
-`v1.1.3-rc.1` is already published. Use a new tag and build number for its
+`v1.1.3-rc.1` and `v1.1.3-rc.2` are already published. Use a new tag and build number for their
 successor; do not replace existing tags or release assets.
 
 ## 0. Pre-flight: 30-second manual smoke test
@@ -45,10 +45,10 @@ tests or CI is not a substitute for confirming live restoration.
 
 ```bash
 plutil -replace CFBundleShortVersionString -string "1.1.3" WindowLayout/Info.plist
-plutil -replace CFBundleVersion -string "6" WindowLayout/Info.plist
+plutil -replace CFBundleVersion -string "7" WindowLayout/Info.plist
 ```
 
-Choose a tag such as `v1.1.3-rc.2` for the next candidate. Its numeric part must
+Choose a tag such as `v1.1.3-rc.3` for the next candidate. Its numeric part must
 match `CFBundleShortVersionString`. Increment `CFBundleVersion` for every new
 distributed build, even when its numeric version is unchanged. The examples
 below prepare that candidate, not a stable `v1.1.3`.
@@ -60,8 +60,8 @@ Before publishing, date the matching `CHANGELOG.md` entry and prepare
 
 ```bash
 ./run_tests.sh
-./make_release.sh --tag v1.1.3-rc.2 --dry-run
-./make_release.sh --tag v1.1.3-rc.2
+./make_release.sh --tag v1.1.3-rc.3 --dry-run
+./make_release.sh --tag v1.1.3-rc.3
 ```
 
 The dry run validates the tag and prints the same publish command as the build,
@@ -79,8 +79,8 @@ and both architectures. The build script does not install or launch the app.
 ## 3. Commit, tag, push
 
 ```bash
-git add WindowLayout/Info.plist CHANGELOG.md
-git commit -m "Prepare v1.1.3-rc.2"
+git add WindowLayout/Info.plist CHANGELOG.md release-notes.md
+git commit -m "Prepare v1.1.3-rc.3"
 ```
 
 Push the change through a pull request. Wait for CI **and the repository's code
@@ -88,16 +88,16 @@ review** to finish before merging. Then tag the exact merged, tested source
 commit; verify that the packaged app was built from the same source tree.
 
 ```bash
-git tag -a v1.1.3-rc.2 -m "WindowLayout v1.1.3-rc.2" <tested-commit-sha>
-git push origin v1.1.3-rc.2
+git tag -a v1.1.3-rc.3 -m "WindowLayout v1.1.3-rc.3" <tested-commit-sha>
+git push origin v1.1.3-rc.3
 ```
 
 ## 4. GitHub Release
 
 ```bash
-gh release create v1.1.3-rc.2 release/WindowLayout.dmg \
+gh release create v1.1.3-rc.3 release/WindowLayout.dmg \
   --verify-tag --prerelease --latest=false \
-  --title "v1.1.3-rc.2" --notes-file release-notes.md
+  --title "v1.1.3-rc.3" --notes-file release-notes.md
 ```
 
 The builder prints this command using the complete supplied tag even if no
@@ -123,9 +123,9 @@ git push
 ## 6. Post-release sanity check
 
 ```bash
-gh release view v1.1.3-rc.2 --json isDraft,isPrerelease,tagName,assets
+gh release view v1.1.3-rc.3 --json isDraft,isPrerelease,tagName,assets
 curl -fL --output /tmp/WindowLayout-rc-check.dmg \
-  https://github.com/sylpht/WindowLayout/releases/download/v1.1.3-rc.2/WindowLayout.dmg
+  https://github.com/sylpht/WindowLayout/releases/download/v1.1.3-rc.3/WindowLayout.dmg
 shasum -a 256 release/WindowLayout.dmg /tmp/WindowLayout-rc-check.dmg
 ```
 
