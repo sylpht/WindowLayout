@@ -25,7 +25,7 @@ WindowLayout fixes this in the menu bar — pure AppKit, universal binary, no El
 ## Features
 
 - **Save and restore** window positions with one click
-- **Auto-restore** when the same monitors reconnect
+- **Auto-restore** after restart, system wake or monitor reconnection (when enabled)
 - **Multiple named layouts** per display setup — "Work", "Focus", "Weekend"
 - **Launch at Login** — runs silently in the menu bar
 - **Localized** — English, Русский, 中文 (with live switcher)
