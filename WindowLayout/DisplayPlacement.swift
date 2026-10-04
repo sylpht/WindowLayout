@@ -71,9 +71,24 @@ enum DisplayPlacement {
         guard savedKnown.filter({ $0.validUUID == uuid }).count == 1 else { return .failure(.ambiguousIdentity) }
         let matches = current.indices.filter { current[$0]?.validUUID == uuid }
         guard matches.count <= 1 else { return .failure(.ambiguousIdentity) }
-        guard let index = matches.first, let candidate = current[index] else { return .failure(.displayMissing) }
-        guard candidate.hardwareKey == identity.hardwareKey else { return .failure(.displayMissing) }
-        return .success(Match(index: index, method: "displayUUID"))
+        if let index = matches.first, let candidate = current[index] {
+            guard candidate.hardwareKey == identity.hardwareKey else { return .failure(.displayMissing) }
+            return .success(Match(index: index, method: "displayUUID"))
+        }
+        // A connector-dependent UUID may change after reconnect. A sole serial-zero
+        // model is a best-available inference, not proof of the same physical unit:
+        // replacing it with another unit of the same model cannot be distinguished.
+        guard identity.serial == 0,
+              savedKnown.filter({ $0.serial == 0 && $0.modelKey == identity.modelKey }).count == 1 else {
+            return .failure(.displayMissing)
+        }
+        let modelMatches = current.indices.filter {
+            current[$0]?.serial == 0 && current[$0]?.modelKey == identity.modelKey
+        }
+        guard modelMatches.count == 1, let candidate = current[modelMatches[0]] else { return .failure(.displayMissing) }
+        guard let currentUUID = candidate.validUUID else { return .failure(.unavailableIdentity) }
+        guard currentKnown.filter({ $0.validUUID == currentUUID }).count == 1 else { return .failure(.ambiguousIdentity) }
+        return .success(Match(index: modelMatches[0], method: "uniqueModelFallback"))
     }
 
     private static func legacyTarget(snapshot: WindowSnapshot, profile: LayoutProfile,

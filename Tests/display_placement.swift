@@ -138,6 +138,59 @@ struct DisplayPlacementTests {
             return fails(DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout), current: layout),
                          with: .ambiguousIdentity)
         }
+        test("a unique serial-zero model can be inferred after its UUID changes") {
+            let layout = DisplayLayout(appKitFrames: [primary, right],
+                                       identities: [identity(1, serial: 0), identity(2, serial: 2)])
+            let current = DisplayLayout(appKitFrames: layout.appKitFrames,
+                                        identities: [identity(9, serial: 0), identity(2, serial: 2)])
+            let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
+            let restored = try DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout),
+                                                       current: current).get()
+            return restored.screenIndex == 0 && restored.frame == window.frame && restored.method == "uniqueModelFallback"
+        }
+        for ambiguousSaved in [true, false] {
+            test("UUID-change inference rejects ambiguous \(ambiguousSaved ? "saved" : "current") serial-zero peers") {
+                let savedIDs = [identity(1, serial: 0), identity(2, serial: ambiguousSaved ? 0 : 2)]
+                let currentIDs = [identity(9, serial: 0), identity(8, serial: ambiguousSaved ? 2 : 0)]
+                let layout = DisplayLayout(appKitFrames: [primary, right], identities: savedIDs)
+                let current = DisplayLayout(appKitFrames: layout.appKitFrames, identities: currentIDs)
+                let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
+                return fails(DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout), current: current),
+                             with: .ambiguousIdentity)
+            }
+        }
+        test("UUID-change inference never matches an external display to a built-in display") {
+            let layout = DisplayLayout(appKitFrames: [primary], identities: [identity(1, serial: 0)])
+            let builtin = DisplayIdentity(uuid: identity(9).uuid, vendor: 1, model: 2, serial: 0, isBuiltin: true)
+            let current = DisplayLayout(appKitFrames: [primary], identities: [builtin])
+            let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
+            return fails(DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout), current: current),
+                         with: .displayMissing)
+        }
+        test("UUID-change inference never substitutes a different model") {
+            let layout = DisplayLayout(appKitFrames: [primary], identities: [identity(1, serial: 0)])
+            let otherModel = DisplayIdentity(uuid: identity(9).uuid, vendor: 1, model: 3, serial: 0, isBuiltin: false)
+            let current = DisplayLayout(appKitFrames: [primary], identities: [otherModel])
+            let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
+            return fails(DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout), current: current),
+                         with: .displayMissing)
+        }
+        test("UUID-change inference rejects a duplicate replacement UUID") {
+            let layout = DisplayLayout(appKitFrames: [primary, right],
+                                       identities: [identity(1, serial: 0), identity(2, serial: 2)])
+            let current = DisplayLayout(appKitFrames: layout.appKitFrames,
+                                        identities: [identity(9, serial: 0), identity(9, serial: 2)])
+            let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
+            return fails(DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout), current: current),
+                         with: .ambiguousIdentity)
+        }
+        test("UUID-change inference rejects an unavailable current UUID") {
+            let layout = DisplayLayout(appKitFrames: [primary], identities: [identity(1, serial: 0)])
+            let current = DisplayLayout(appKitFrames: [primary], identities: [identity(0, serial: 0)])
+            let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
+            return fails(DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout), current: current),
+                         with: .unavailableIdentity)
+        }
         test("zero UUID with no serial remains unresolved") {
             let layout = DisplayLayout(appKitFrames: [primary], identities: [identity(0, serial: 0)])
             let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
