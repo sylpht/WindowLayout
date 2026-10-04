@@ -19,11 +19,20 @@ Requirements: macOS 13+, Xcode Command Line Tools.
 
 `build.sh` uses `WL_SIGN_IDENTITY` from the environment first, then
 `.signing.local`, and otherwise ad-hoc signing (`-`). It builds in a unique
-temporary directory, enables Hardened Runtime, and adds a secure timestamp for
-certificate-based signatures. The resulting `WindowLayout.app` retains that
-signature. `make_dmg.sh` packages this app without re-signing it and verifies the
+temporary directory and enables Hardened Runtime. By default, named
+`Developer ID Application:` identities get a secure timestamp; Apple Development
+and ad-hoc signatures use `--timestamp=none`, so local builds do not contact Apple's
+timestamp service. The resulting `WindowLayout.app` retains that signature.
+`make_dmg.sh` packages this app without re-signing it and verifies the
 copy inside the DMG. Rebuild explicitly after source changes; an existing app is
 not automatically rebuilt by the packager.
+
+`WL_SIGN_TIMESTAMP` accepts `auto` (the default), `1` (secure timestamp) or `0`
+(no timestamp). Like the identity, it can be set in `.signing.local`; an explicit
+environment value takes precedence. When selecting a distribution certificate
+by its SHA-1 fingerprint instead of its name, set `WL_SIGN_TIMESTAMP=1` explicitly.
+The script rejects `0` for named Developer ID identities and `1` for ad-hoc signing.
+A distribution signature without a secure timestamp is unsuitable for notarization.
 
 An ad-hoc or Apple Development signature is not a substitute for notarization.
 For outside-App-Store distribution under normal Gatekeeper policy, use a

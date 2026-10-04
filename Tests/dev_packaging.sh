@@ -65,18 +65,23 @@ case "$name" in
         else
             [ "${DEV_TEST_FAIL_SIGN:-0}" != 1 ] || exit 96
             identity=''
-            timestamp=0
+            timestamp=default
             while [ "$#" -gt 0 ]; do
                 case "$1" in
                     --sign) identity=$2; shift 2 ;;
                     --timestamp) timestamp=1; shift ;;
+                    --timestamp=none) timestamp=0; shift ;;
                     *) shift ;;
                 esac
             done
             [ -n "$identity" ] || exit 97
-            if [ "$identity" != - ] && [ "$timestamp" != 1 ]; then exit 98; fi
+            case "$identity" in
+                'Developer ID Application:'*) [ "$timestamp" = 1 ] || exit 98 ;;
+            esac
+            if [ "${DEV_TEST_OFFLINE:-0}" = 1 ] && [ "$timestamp" = 1 ]; then exit 103; fi
             mkdir -p "$app/Contents/_CodeSignature"
             printf '%s\n' "$identity" > "$app/Contents/_CodeSignature/identity"
+            printf '%s\n' "$timestamp" > "$app/Contents/_CodeSignature/timestamp"
             fingerprint "$app" > "$app/Contents/_CodeSignature/payload"
         fi
         ;;
@@ -135,14 +140,17 @@ STUB
     done
 }
 
-run_script() {
+run_script() (
+    unset WL_SIGN_TIMESTAMP
+    if [ "${TEST_TIMESTAMP+x}" = x ]; then export WL_SIGN_TIMESTAMP="$TEST_TIMESTAMP"; fi
     PATH="$FIXTURE/bin:$PATH" DEV_TEST_CASE="$FIXTURE" \
         WL_SIGN_IDENTITY="${TEST_IDENTITY:--}" \
+        DEV_TEST_OFFLINE="${OFFLINE:-0}" \
         DEV_TEST_FAIL_SIGN="${FAIL_SIGN:-0}" \
         DEV_TEST_FAIL_IMAGE_VERIFY="${FAIL_IMAGE_VERIFY:-0}" \
         DEV_TEST_TAMPER_IMAGE="${TAMPER_IMAGE:-0}" \
         /bin/bash "$FIXTURE/$1" "${@:2}"
-}
+)
 
 assert_no_lifecycle() { [ ! -e "$FIXTURE/lifecycle" ]; }
 assert_old_dmg() { [ "$(cat "$FIXTURE/WindowLayout.dmg")" = 'previous DMG' ]; }
@@ -154,6 +162,44 @@ build_only() {
     run_script build.sh --no-install || return 1
     [ "$(cat "$FIXTURE/WindowLayout.app/Contents/_CodeSignature/identity")" = "$TEST_IDENTITY" ] \
         && assert_no_lifecycle && [ -z "$(ls -A "$FIXTURE/tmp")" ]
+}
+
+development_offline() {
+    fixture || return 1
+    TEST_IDENTITY='Apple Development: Offline Test (FAKE)'
+    OFFLINE=1
+    run_script build.sh --no-install || return 1
+    [ "$(cat "$FIXTURE/WindowLayout.app/Contents/_CodeSignature/timestamp")" = 0 ] \
+        && assert_no_lifecycle
+}
+
+timestamp_override() {
+    fixture || return 1
+    TEST_IDENTITY='Apple Development: Offline Test (FAKE)'
+    TEST_TIMESTAMP=0
+    OFFLINE=1
+    printf 'WL_SIGN_TIMESTAMP=1\n' > "$FIXTURE/.signing.local"
+    run_script build.sh --no-install || return 1
+    [ "$(cat "$FIXTURE/WindowLayout.app/Contents/_CodeSignature/timestamp")" = 0 ] \
+        && assert_no_lifecycle
+}
+
+fingerprint_timestamp() {
+    fixture || return 1
+    TEST_IDENTITY=0123456789ABCDEF0123456789ABCDEF01234567
+    # The certificate name is unavailable when selecting it by fingerprint.
+    printf 'WL_SIGN_TIMESTAMP=1\n' > "$FIXTURE/.signing.local"
+    run_script build.sh --no-install || return 1
+    [ "$(cat "$FIXTURE/WindowLayout.app/Contents/_CodeSignature/timestamp")" = 1 ] \
+        && assert_no_lifecycle
+}
+
+invalid_timestamp() {
+    fixture || return 1
+    TEST_TIMESTAMP=$1
+    TEST_IDENTITY=${2:--}
+    if run_script build.sh --no-install; then return 1; fi
+    [ ! -e "$FIXTURE/calls" ] && assert_no_lifecycle
 }
 
 package_signed() {
@@ -246,6 +292,12 @@ test_case() {
 }
 
 test_case 'build-only exports verified signed app and honors explicit identity' build_only
+test_case 'Apple Development builds disable secure timestamps and work offline' development_offline
+test_case 'explicit offline timestamp mode overrides local defaults' timestamp_override
+test_case 'certificate fingerprints support secure timestamp opt-in from local defaults' fingerprint_timestamp
+test_case 'invalid timestamp mode fails before build tools or lifecycle changes' invalid_timestamp invalid
+test_case 'named Developer ID cannot disable its required secure timestamp' invalid_timestamp 0 'Developer ID Application: Test (FAKE)'
+test_case 'ad-hoc signing rejects a secure timestamp request before building' invalid_timestamp 1
 test_case 'DMG preserves signature, removes inherited metadata and verifies mounted app' package_signed
 test_case 'missing dev app is built without installation or app lifecycle changes' package_missing
 test_case 'unsigned dev app is rejected without replacing an existing DMG' reject_app unsigned

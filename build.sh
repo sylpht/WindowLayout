@@ -8,6 +8,9 @@
 #   2. Put `WL_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)"` into
 #      .signing.local (gitignored), or
 #   3. Falls back to ad-hoc "-" (Accessibility permission resets every build).
+# Secure timestamps default on for named Developer ID Application identities.
+# Set WL_SIGN_TIMESTAMP=1 for distribution certificates selected by fingerprint;
+# other local builds use --timestamp=none and need no timestamp service.
 
 set -eo pipefail
 cd "$(dirname "$0")"
@@ -23,8 +26,30 @@ done
 
 # An explicit environment identity must win over a developer's local defaults.
 ENV_IDENTITY="${WL_SIGN_IDENTITY:-}"
+ENV_TIMESTAMP_SET="${WL_SIGN_TIMESTAMP+x}"
+ENV_TIMESTAMP="${WL_SIGN_TIMESTAMP-}"
 [ -f .signing.local ] && source .signing.local
 IDENTITY="${ENV_IDENTITY:-${WL_SIGN_IDENTITY:--}}"
+TIMESTAMP_MODE="${WL_SIGN_TIMESTAMP-auto}"
+if [ "$ENV_TIMESTAMP_SET" = x ]; then TIMESTAMP_MODE="$ENV_TIMESTAMP"; fi
+case "$TIMESTAMP_MODE" in
+    auto)
+        case "$IDENTITY" in
+            'Developer ID Application:'*) TIMESTAMP_MODE=1 ;;
+            *) TIMESTAMP_MODE=0 ;;
+        esac
+        ;;
+    0|1) ;;
+    *) echo 'WL_SIGN_TIMESTAMP must be auto, 0 or 1.' >&2; exit 1 ;;
+esac
+case "$IDENTITY:$TIMESTAMP_MODE" in
+    'Developer ID Application:'*:0)
+        echo 'Developer ID distribution requires a secure timestamp; use WL_SIGN_TIMESTAMP=1 or auto.' >&2
+        exit 1 ;;
+    -:1)
+        echo 'Ad-hoc signing cannot use a secure timestamp; use WL_SIGN_TIMESTAMP=0 or auto.' >&2
+        exit 1 ;;
+esac
 
 SDK=$(xcrun --show-sdk-path --sdk macosx)
 APP="WindowLayout.app"
@@ -71,8 +96,12 @@ echo "▶ Signing as: $IDENTITY"
 xattr -cr "$STAGE"
 SIGN_ARGS=(--force --deep --sign "$IDENTITY" --options runtime
     --entitlements WindowLayout/WindowLayout.entitlements)
-# Notarization requires a secure timestamp. Ad-hoc signing has no signing identity.
-if [ "$IDENTITY" != "-" ]; then SIGN_ARGS+=(--timestamp); fi
+# Only distribution signing needs Apple's network-backed timestamp service.
+if [ "$TIMESTAMP_MODE" = 1 ]; then
+    SIGN_ARGS+=(--timestamp)
+else
+    SIGN_ARGS+=(--timestamp=none)
+fi
 codesign "${SIGN_ARGS[@]}" "$STAGE"
 codesign --verify --deep --strict --verbose=2 "$STAGE"
 
