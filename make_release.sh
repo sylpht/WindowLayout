@@ -1,9 +1,8 @@
 #!/bin/bash
-# Build a distribution-grade .dmg using AD-HOC signing (no paid Developer Program needed).
-#
-# The resulting DMG triggers macOS Gatekeeper's "unidentified developer" warning on first
-# launch (mild, has an Open button) instead of the scary "App is damaged" warning that
-# Apple Development certs produce after download.
+# Build an ad-hoc-signed .dmg for testing (no paid Developer Program needed).
+# This is not notarized and does not guarantee Gatekeeper acceptance. For normal
+# outside-App-Store distribution, use Developer ID signing and notarization;
+# see CONTRIBUTING.md.
 #
 # Output:
 #   release/WindowLayout.dmg   — drag-to-Applications DMG

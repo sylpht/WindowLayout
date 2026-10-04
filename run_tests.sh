@@ -50,3 +50,5 @@ swiftc \
 ./StorageSafetyRunner
 
 bash Tests/release_tooling.sh
+
+bash Tests/dev_packaging.sh

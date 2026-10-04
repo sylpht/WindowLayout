@@ -1,6 +1,7 @@
 #!/bin/bash
-# Build universal (arm64 + x86_64) .app, sign, install to /Applications.
-# Signing happens in /tmp because iCloud Drive adds xattrs codesign rejects.
+# Build a signed universal app. By default, also install and launch it.
+# --no-install only writes WindowLayout.app; it never stops or launches the app.
+# Signing happens in a unique /tmp directory to avoid cloud-provider metadata.
 #
 # Signing identity:
 #   1. Set $WL_SIGN_IDENTITY in env, or
@@ -8,15 +9,28 @@
 #      .signing.local (gitignored), or
 #   3. Falls back to ad-hoc "-" (Accessibility permission resets every build).
 
-set -e
+set -eo pipefail
 cd "$(dirname "$0")"
 
+INSTALL=1
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --no-install) INSTALL=0; shift ;;
+        --help|-h) echo "Usage: $0 [--no-install]"; exit 0 ;;
+        *) echo "Usage: $0 [--no-install]" >&2; exit 1 ;;
+    esac
+done
+
+# An explicit environment identity must win over a developer's local defaults.
+ENV_IDENTITY="${WL_SIGN_IDENTITY:-}"
 [ -f .signing.local ] && source .signing.local
-IDENTITY="${WL_SIGN_IDENTITY:--}"
+IDENTITY="${ENV_IDENTITY:-${WL_SIGN_IDENTITY:--}}"
 
 SDK=$(xcrun --show-sdk-path --sdk macosx)
 APP="WindowLayout.app"
-STAGE="/tmp/WindowLayout.app"
+WORKDIR=$(mktemp -d /tmp/WindowLayoutBuild.XXXXXX)
+trap 'rm -rf "$WORKDIR"' EXIT
+STAGE="$WORKDIR/WindowLayout.app"
 
 SOURCES=(
   WindowLayout/Log.swift
@@ -37,41 +51,47 @@ SOURCES=(
   WindowLayout/main.swift
 )
 
+mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
+
+echo "▶ Compiling arm64…"
+swiftc "${SOURCES[@]}" -sdk "$SDK" -target arm64-apple-macos13.0 -o "$WORKDIR/WindowLayout_arm64"
+
+echo "▶ Compiling x86_64…"
+swiftc "${SOURCES[@]}" -sdk "$SDK" -target x86_64-apple-macos13.0 -o "$WORKDIR/WindowLayout_x86_64"
+
+echo "▶ Creating universal binary…"
+lipo -create "$WORKDIR/WindowLayout_arm64" "$WORKDIR/WindowLayout_x86_64" \
+  -output "$STAGE/Contents/MacOS/WindowLayout"
+rm -f "$WORKDIR/WindowLayout_arm64" "$WORKDIR/WindowLayout_x86_64"
+
+cp WindowLayout/Info.plist "$STAGE/Contents/"
+cp WindowLayout/AppIcon.icns "$STAGE/Contents/Resources/"
+
+echo "▶ Signing as: $IDENTITY"
+xattr -cr "$STAGE"
+SIGN_ARGS=(--force --deep --sign "$IDENTITY" --options runtime
+    --entitlements WindowLayout/WindowLayout.entitlements)
+# Notarization requires a secure timestamp. Ad-hoc signing has no signing identity.
+if [ "$IDENTITY" != "-" ]; then SIGN_ARGS+=(--timestamp); fi
+codesign "${SIGN_ARGS[@]}" "$STAGE"
+codesign --verify --deep --strict --verbose=2 "$STAGE"
+
+# Keep the signed bundle as the dev artifact used by make_dmg.sh. Clean metadata
+# again after copying because a cloud provider can add FinderInfo in this folder.
+rm -rf "$APP"
+ditto --noextattr --noacl "$STAGE" "$APP"
+xattr -cr "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"
+echo "✓ Signed app: $APP"
+if [ "$INSTALL" = 0 ]; then exit 0; fi
+
 pkill -x WindowLayout 2>/dev/null || true
 sleep 0.3
 
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-
-echo "▶ Compiling arm64…"
-swiftc "${SOURCES[@]}" -sdk "$SDK" -target arm64-apple-macos13.0 -o /tmp/WindowLayout_arm64
-
-echo "▶ Compiling x86_64…"
-swiftc "${SOURCES[@]}" -sdk "$SDK" -target x86_64-apple-macos13.0 -o /tmp/WindowLayout_x86_64
-
-echo "▶ Creating universal binary…"
-lipo -create /tmp/WindowLayout_arm64 /tmp/WindowLayout_x86_64 \
-  -output "$APP/Contents/MacOS/WindowLayout"
-rm -f /tmp/WindowLayout_arm64 /tmp/WindowLayout_x86_64
-
-cp WindowLayout/Info.plist "$APP/Contents/"
-cp WindowLayout/AppIcon.icns "$APP/Contents/Resources/"
-
-echo "▶ Signing as: $IDENTITY"
-rm -rf "$STAGE"
-cp -R "$APP" "$STAGE"
-xattr -cr "$STAGE" 2>/dev/null || true
-# --options runtime enables Hardened Runtime, which is a prerequisite for notarisation.
-# (Notarisation itself requires a paid Developer ID Application cert + `xcrun notarytool` —
-# see CONTRIBUTING.md for the public-release flow.)
-codesign --force --deep --sign "$IDENTITY" \
-  --options runtime \
-  --entitlements WindowLayout/WindowLayout.entitlements \
-  "$STAGE"
-
 echo "▶ Installing to /Applications…"
 rm -rf /Applications/WindowLayout.app
-ditto "$STAGE" /Applications/WindowLayout.app
+ditto --noextattr --noacl "$STAGE" /Applications/WindowLayout.app
+codesign --verify --deep --strict --verbose=2 /Applications/WindowLayout.app
 
 open /Applications/WindowLayout.app
 sleep 1.5
