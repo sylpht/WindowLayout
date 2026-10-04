@@ -8,38 +8,74 @@ Thanks for your interest! Small, focused PRs are the easiest to merge.
 git clone https://github.com/sylpht/WindowLayout.git
 cd WindowLayout
 ./build.sh       # builds (universal arm64+x86_64), signs, installs to /Applications
-./run_tests.sh   # 33 unit + integration tests
+./build.sh --no-install  # build/sign only; do not stop, install or launch the app
+./make_dmg.sh    # package the current signed dev app; build it with --no-install if absent
+./run_tests.sh   # application, storage, sync and packaging regressions
 ```
 
 Requirements: macOS 13+, Xcode Command Line Tools.
 
+The default build waits up to 10 seconds for the old WindowLayout process to exit
+before replacing the installed app. If it cannot confirm exit, installation stops
+and the installed copy remains intact. Use `--no-install` to leave running apps alone.
+
 ## Cutting a release (notarised .dmg)
 
-The build script signs with `Apple Development` and enables Hardened Runtime, but
-that's not enough for Gatekeeper to accept a downloaded `.dmg` — you need a paid
-Apple Developer Program membership for `Developer ID Application` + `notarytool`:
+`build.sh` uses `WL_SIGN_IDENTITY` from the environment first, then
+`.signing.local`, and otherwise ad-hoc signing (`-`). It builds in a unique
+temporary directory and enables Hardened Runtime. By default, named
+`Developer ID Application:` identities get a secure timestamp; Apple Development
+and ad-hoc signatures use `--timestamp=none`, so local builds do not contact Apple's
+timestamp service. The resulting `WindowLayout.app` retains that signature.
+`make_dmg.sh` packages this app without re-signing it and verifies the
+copy inside the DMG. Rebuild explicitly after source changes; an existing app is
+not automatically rebuilt by the packager.
+
+`WL_SIGN_TIMESTAMP` accepts `auto` (the default), `1` (secure timestamp) or `0`
+(no timestamp). Like the identity, it can be set in `.signing.local`; an explicit
+environment value takes precedence. When selecting a distribution certificate
+by its SHA-1 fingerprint instead of its name, set `WL_SIGN_TIMESTAMP=1` explicitly.
+The script rejects `0` for named Developer ID identities and `1` for ad-hoc signing.
+A distribution signature without a secure timestamp is unsuitable for notarization.
+
+An ad-hoc or Apple Development signature is not a substitute for notarization.
+For outside-App-Store distribution under normal Gatekeeper policy, use a
+**Developer ID Application** certificate and Apple's notarization service.
+This requires the appropriate Apple Developer Program credentials and network
+access. See Apple's [notarization requirements](https://developer.apple.com/documentation/security/resolving-common-notarization-issues)
+and [custom workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
 
 ```bash
-# 1. One-time: store credentials in keychain
-xcrun notarytool store-credentials WL-NOTARY \
-    --apple-id you@example.com \
-    --team-id YOUR_TEAM_ID \
-    --password APP_SPECIFIC_PASSWORD
+# 1. Store notarization credentials interactively in Keychain; do not commit secrets.
+xcrun notarytool store-credentials WL-NOTARY
 
-# 2. Build with your Developer ID cert
-WL_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./build.sh
+# 2. Build and package without changing the running/installed app.
+WL_DISTRIBUTION_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+WL_SIGN_IDENTITY="$WL_DISTRIBUTION_IDENTITY" ./build.sh --no-install
 ./make_dmg.sh
 
-# 3. Submit for notarisation
+# 3. Sign the container and submit the exact DMG.
+codesign --force --sign "$WL_DISTRIBUTION_IDENTITY" --timestamp WindowLayout.dmg
+codesign --verify --verbose=2 WindowLayout.dmg
 xcrun notarytool submit WindowLayout.dmg --keychain-profile WL-NOTARY --wait
-
-# 4. Staple the ticket so Gatekeeper accepts offline
-xcrun stapler staple WindowLayout.dmg
 ```
 
-Without notarisation, end users will see "WindowLayout is damaged" or "unidentified
-developer" alerts. They can bypass with `xattr -d com.apple.quarantine WindowLayout.app`
-but it's a bad UX — notarise for any public release.
+Continue only when the submission reports **Accepted**. For a rejection, inspect
+its log with `xcrun notarytool log <submission-id> --keychain-profile WL-NOTARY`.
+
+```bash
+# 4. Attach and validate the notarization ticket.
+xcrun stapler staple WindowLayout.dmg
+xcrun stapler validate WindowLayout.dmg
+hdiutil verify WindowLayout.dmg
+shasum -a 256 WindowLayout.dmg
+```
+
+Test the final downloaded artifact on a separate Mac or test account before
+publishing it. Compute distribution checksums after stapling; do not rebuild or
+replace the DMG under an existing release. The separate `make_release.sh --tag …`
+flow produces an **ad-hoc-signed, unnotarized** test release and does not guarantee
+Gatekeeper acceptance. The exact warning depends on macOS and the download path.
 
 ## Ground rules
 
