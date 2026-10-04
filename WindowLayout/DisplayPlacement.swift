@@ -57,7 +57,7 @@ enum DisplayPlacement {
         // Never call a swap between those units an exact physical-display match.
         let ambiguous = { (item: DisplayIdentity, collection: [DisplayIdentity]) in
             collection.filter { $0.hardwareKey == item.hardwareKey }.count > 1
-                || (item.serial == 0 && collection.filter { $0.modelKey == item.modelKey }.count > 1)
+                || (item.serial == 0 && collection.filter { $0.serial == 0 && $0.modelKey == item.modelKey }.count > 1)
         }
         guard !ambiguous(identity, savedKnown), !ambiguous(identity, currentKnown) else {
             return .failure(.ambiguousIdentity)

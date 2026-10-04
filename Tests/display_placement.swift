@@ -118,6 +118,26 @@ struct DisplayPlacementTests {
             let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
             return try DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout), current: layout).get().method == "displayUUID"
         }
+        for index in 0...1 {
+            test("mixed serial-zero and serialized same-model displays resolve member \(index)") {
+                let layout = DisplayLayout(appKitFrames: [primary, right],
+                                           identities: [identity(1, serial: 0), identity(2, serial: 2)])
+                let frame = index == 0 ? CGRect(x: 100, y: 100, width: 800, height: 600)
+                                       : CGRect(x: 1540, y: 100, width: 800, height: 600)
+                let window = snapshot(frame, index: index, layout: layout)
+                let restored = try DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout),
+                                                           current: layout).get()
+                return restored.screenIndex == index && restored.frame == frame
+                    && restored.method == (index == 0 ? "displayUUID" : "hardwareSerial")
+            }
+        }
+        test("mixed serial-zero and serialized displays still reject a duplicate UUID for the zero-serial member") {
+            let layout = DisplayLayout(appKitFrames: [primary, right],
+                                       identities: [identity(1, serial: 0), identity(1, serial: 2)])
+            let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
+            return fails(DisplayPlacement.target(snapshot: window, profile: profile(window, layout: layout), current: layout),
+                         with: .ambiguousIdentity)
+        }
         test("zero UUID with no serial remains unresolved") {
             let layout = DisplayLayout(appKitFrames: [primary], identities: [identity(0, serial: 0)])
             let window = snapshot(CGRect(x: 100, y: 100, width: 800, height: 600), index: 0, layout: layout)
