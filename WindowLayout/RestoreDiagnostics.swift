@@ -45,13 +45,15 @@ struct RestoreFrameResult {
 
 struct RestoreAppCounts {
     let saved: Int
+    var processes = 0
+    var axWindowFailures = 0
     var available = 0
     var minimized = 0
     var fullscreen = 0
+    var placementUnresolved = 0
     var titleMismatch = 0
     var noRemainingSaved = 0
     var attempted = 0
-    var placementUnresolved = 0
     var immediateChanged = 0
     var immediateTargetMismatch = 0
     var immediateReadbackMissing = 0
@@ -65,10 +67,11 @@ struct RestoreAppCounts {
         if result.setterFailed { setterFailures += 1 }
     }
 
-    var logDescription: String {
-        "saved=\(saved) available=\(available) minimized=\(minimized) fullscreen=\(fullscreen) "
-            + "titleMismatch=\(titleMismatch) noRemainingSaved=\(noRemainingSaved) attempted=\(attempted) unconsumedSaved=\(saved - attempted) "
-            + "placementUnresolved=\(placementUnresolved) setterFailures=\(setterFailures) immediateChanged=\(immediateChanged) "
+    func logDescription(unconsumedSaved: Int) -> String {
+        "saved=\(saved) processes=\(processes) axWindowFailures=\(axWindowFailures) available=\(available) minimized=\(minimized) fullscreen=\(fullscreen) "
+            + "placementUnresolved=\(placementUnresolved) "
+            + "titleMismatch=\(titleMismatch) noRemainingSaved=\(noRemainingSaved) attempted=\(attempted) unconsumedSaved=\(unconsumedSaved) "
+            + "setterFailures=\(setterFailures) immediateChanged=\(immediateChanged) "
             + "immediateTargetMismatch=\(immediateTargetMismatch) immediateReadbackMissing=\(immediateReadbackMissing)"
     }
 }

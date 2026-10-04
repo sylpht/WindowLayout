@@ -45,6 +45,7 @@ print("▶︎ Running WindowLayout tests\n")
 
 runRestoreSchedulerTests { name, body in test(name, body) }
 runRestoreLifecycleTests { name, body in test(name, body) }
+runSnapshotMatchPoolTests { name, body in test(name, body) }
 
 // Save & restore user-language at the end so we don't pollute defaults.
 let originalLang = L.userPreference
@@ -162,7 +163,7 @@ test("Restore diagnostics — missing after readback remains unknown and is coun
     return result.immediateChanged == nil && result.immediateTargetMatch == nil
         && counts.attempted == 1 && counts.immediateChanged == 0
         && counts.immediateReadbackMissing == 1 && counts.setterFailures == 1
-        && counts.logDescription.contains("unconsumedSaved=1")
+        && counts.logDescription(unconsumedSaved: 1).contains("unconsumedSaved=1")
 }
 
 test("Restore diagnostics — missing baseline is counted while target readback remains usable") {

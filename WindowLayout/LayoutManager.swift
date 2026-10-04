@@ -240,7 +240,7 @@ class LayoutManager {
     /// Max chars of window title we persist. Window titles often contain confidential
     /// data (email subjects, document paths, browser tabs). We only need enough to
     /// distinguish multiple windows of the same app — 64 chars is plenty.
-    private static let maxTitleChars = 64
+    private static let maxTitleChars = SnapshotMatchPool.maxTitleChars
 
     /// Privacy mode. When true, captured layouts store empty window titles instead of
     /// the (truncated) live title. Restore matches by ordinal position within an app
@@ -334,6 +334,8 @@ class LayoutManager {
         if profile.placementVersion == nil {
             Log.info("apply: legacy profile has no physical display identities; restoring only matching screen geometry; resave recommended")
         }
+        var pool = SnapshotMatchPool(snapshots: profile.windows)
+        var countsByApp = savedByApp.mapValues { RestoreAppCounts(saved: $0.count) }
         Log.info("apply: saved=\(profile.windows.count) apps=\(savedByApp.count) screens=\(currentScreens.count)")
         for bid in savedByApp.keys.sorted() {
             let status: String?
@@ -345,43 +347,39 @@ class LayoutManager {
                 status = nil
             }
             if let status {
-                let count = savedByApp[bid]?.count ?? 0
-                Log.info("apply app=\(bid): status=\(status) saved=\(count) unconsumedSaved=\(count)")
+                Log.info("apply app=\(bid): status=\(status)")
             }
         }
 
         for app in regularApps {
             guard let bid = app.bundleIdentifier, !excluded.contains(bid) else { continue }
-            // Group snapshots by title so duplicates (e.g. two "New Tab"s) get distinct snapshots.
-            // Each snapshot may be consumed at most once per app — no random index fallback,
-            // which produced misplaced windows when AX returned them in non-deterministic order.
-            var pool = profile.windows.filter { $0.bundleID == bid }
-            guard !pool.isEmpty else { continue }
-            var counts = RestoreAppCounts(saved: pool.count)
+            guard var counts = countsByApp[bid] else { continue }
+            counts.processes += 1
+            defer { countsByApp[bid] = counts }
             let axApp = AXUIElementCreateApplication(app.processIdentifier)
             let enumeration = axWindows(of: axApp)
+            let candidates = enumeration.windows?.map { window -> SnapshotMatchPool.Candidate in
+                if isMinimized(window) { return .minimized }
+                if isFullscreen(window) { return .fullscreen }
+                return .eligible(title: axTitle(of: window))
+            }
+            let matches = pool.matchProcess(bundleID: bid, windows: candidates)
             guard let windows = enumeration.windows else {
-                Log.warn("apply app=\(bid) pid=\(app.processIdentifier): status=axWindowsUnavailable code=\(enumeration.error.rawValue) invalidValue=\(enumeration.error == .success) saved=\(pool.count) unconsumedSaved=\(pool.count)")
+                counts.axWindowFailures += 1
+                Log.warn("apply app=\(bid) pid=\(app.processIdentifier): status=axWindowsUnavailable code=\(enumeration.error.rawValue) invalidValue=\(enumeration.error == .success) sharedRemainingSaved=\(pool.remainingCount(for: bid))")
                 continue
             }
-            counts.available = windows.count
-            for (windowIndex, window) in windows.enumerated() {
-                guard !isMinimized(window) else { counts.minimized += 1; continue }
-                guard !isFullscreen(window) else { counts.fullscreen += 1; continue }
-                // Truncate live title to the same length we used at save time, otherwise
-                // a > 64-char document title (e.g. "Document - lots of words…") never matches
-                // the truncated saved version and the window never gets restored.
-                let title = String(axTitle(of: window).prefix(Self.maxTitleChars))
-                // Title match preferred. If the saved snapshot has an empty title (privacy
-                // mode at save time), or no title match exists, fall back to ordinal —
-                // first remaining empty-title snapshot in the pool.
-                let idx = pool.firstIndex(where: { !$0.windowTitle.isEmpty && $0.windowTitle == title })
-                    ?? pool.firstIndex(where: { $0.windowTitle.isEmpty })
-                guard let i = idx else {
-                    if pool.isEmpty { counts.noRemainingSaved += 1 } else { counts.titleMismatch += 1 }
-                    continue
+            counts.available += windows.count
+            for (windowIndex, pair) in zip(windows, matches).enumerated() {
+                let (window, match) = pair
+                let s: WindowSnapshot
+                switch match {
+                case .matched(let snapshot): s = snapshot
+                case .minimized: counts.minimized += 1; continue
+                case .fullscreen: counts.fullscreen += 1; continue
+                case .titleMismatch: counts.titleMismatch += 1; continue
+                case .noRemainingSaved: counts.noRemainingSaved += 1; continue
                 }
-                let s = pool.remove(at: i)
                 let placement: DisplayPlacement.Target
                 switch DisplayPlacement.target(snapshot: s, profile: profile, current: displays) {
                 case .success(let target): placement = target
@@ -396,7 +394,12 @@ class LayoutManager {
                 if outcome.immediateChanged == true { lastApplyMovedWindows = true }
                 Log.info("apply app=\(bid) pid=\(app.processIdentifier) windowIndex=\(windowIndex) savedScreenIndex=\(s.screenIndex) targetScreenIndex=\(placement.screenIndex) placement=\(placement.method): \(outcome.logDescription)")
             }
-            Log.info("apply app=\(bid) pid=\(app.processIdentifier): \(counts.logDescription)")
+        }
+        // Saved/remaining totals belong to the bundle, not to each running process.
+        for bid in countsByApp.keys.sorted() {
+            if let counts = countsByApp[bid] {
+                Log.info("apply app=\(bid) scope=bundle: \(counts.logDescription(unconsumedSaved: pool.remainingCount(for: bid)))")
+            }
         }
         Log.info("apply complete: immediateFrameChangeObserved=\(lastApplyMovedWindows) placementUnresolved=\(lastPlacementUnresolvedCount)")
     }
