@@ -40,3 +40,4 @@ homebrew-tap/
 # Standalone regression runners
 SyncSafetyRunner
 StorageSafetyRunner
+DisplayPlacementRunner

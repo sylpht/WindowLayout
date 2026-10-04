@@ -3,6 +3,21 @@ import CoreGraphics
 /// Pure geometry helpers for normalizing / denormalizing window frames
 /// against their screen. Extracted so they can be unit-tested without AppKit.
 enum Geometry {
+    /// AX uses points from the primary screen's top-left; AppKit uses its bottom-left.
+    /// The pivot belongs to NSScreen.screens[0], not the keyboard-focus screen.
+    static func axFrame(fromAppKit frame: CGRect, primaryMaxY: CGFloat) -> CGRect {
+        CGRect(x: frame.minX, y: primaryMaxY - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    static func screenIndex(for frame: CGRect, in screens: [CGRect]) -> Int? {
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        if let index = screens.firstIndex(where: { $0.contains(center) }) { return index }
+        return screens.indices.filter { screens[$0].intersects(frame) }.max {
+            let a = screens[$0].intersection(frame), b = screens[$1].intersection(frame)
+            return a.width * a.height < b.width * b.height
+        }
+    }
+
     static func normalize(_ frame: CGRect, in screen: CGRect) -> CGRect {
         guard screen.width > 0, screen.height > 0 else { return frame }
         return CGRect(

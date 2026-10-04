@@ -62,11 +62,13 @@ class LayoutManager {
     func saveCurrentLayout(name: String) -> LayoutProfile? {
         lastStorageError = initialReadError
         guard initialReadError == nil else { return nil }
-        let config = DisplayConfiguration.current()
-        let screens = NSScreen.screens.map(\.frame)
+        let screenObjects = NSScreen.screens
+        let config = DisplayConfiguration.current(screens: screenObjects)
+        let displays = DisplayConfiguration.placementScreens(screens: screenObjects)
+        let screens = displays.appKitFrames
         guard !screens.isEmpty else { return nil }
 
-        let windows = captureWindows(screens: screens)
+        let windows = captureWindows(displays: displays)
         // Refuse to save empty layouts — the user would later "restore" it and nothing
         // happens, with no clue why. Returning nil lets the caller surface a useful error.
         guard !windows.isEmpty else {
@@ -80,7 +82,9 @@ class LayoutManager {
             capturedAt: Date(),
             windows: windows,
             screenFrames: screens,
-            isAutoSnapshot: false
+            isAutoSnapshot: false,
+            placementVersion: DisplayPlacement.currentVersion,
+            displayIdentities: displays.identities
         )
         guard commit(profiles + [profile]) else { return nil }
         Log.info("Saved layout '\(name)' — \(windows.count) windows, signature \(config.signature)")
@@ -98,11 +102,13 @@ class LayoutManager {
             Log.info("captureAutoSnapshot skipped: Stage Manager is active")
             return
         }
-        let config = DisplayConfiguration.current()
-        let screens = NSScreen.screens.map(\.frame)
+        let screenObjects = NSScreen.screens
+        let config = DisplayConfiguration.current(screens: screenObjects)
+        let displays = DisplayConfiguration.placementScreens(screens: screenObjects)
+        let screens = displays.appKitFrames
         guard !screens.isEmpty else { return }
 
-        let windows = captureWindows(screens: screens)
+        let windows = captureWindows(displays: displays)
         guard !windows.isEmpty else { return }
 
         let sigs = Set(config.matchingSignatures)
@@ -119,7 +125,9 @@ class LayoutManager {
                 capturedAt: Date(),
                 windows: windows,
                 screenFrames: screens,
-                isAutoSnapshot: true
+                isAutoSnapshot: true,
+                placementVersion: DisplayPlacement.currentVersion,
+                displayIdentities: displays.identities
             )
             // Dedupe: a legacy-and-canonical pair could coexist after a v1.0↔v1.1 round-trip.
             // After replacing one with canonical, drop any other auto-snapshot for this setup.
@@ -136,7 +144,9 @@ class LayoutManager {
                 capturedAt: Date(),
                 windows: windows,
                 screenFrames: screens,
-                isAutoSnapshot: true
+                isAutoSnapshot: true,
+                placementVersion: DisplayPlacement.currentVersion,
+                displayIdentities: displays.identities
             ))
         }
         commit(candidate)
@@ -144,6 +154,7 @@ class LayoutManager {
 
     func restoreLayout(id: UUID) {
         lastApplyMovedWindows = false
+        lastPlacementUnresolvedCount = 0
         guard let profile = profile(id: id) else {
             Log.info("restoreLayout skipped: profile not found")
             return
@@ -155,6 +166,7 @@ class LayoutManager {
     /// most-recent user-saved profile first, auto-snapshot as fallback.
     func autoRestore() {
         lastApplyMovedWindows = false
+        lastPlacementUnresolvedCount = 0
         // Stage Manager auto-arranges windows; restoring positions on top of it just
         // gets clobbered. Skip — user can still manually trigger restore from the menu.
         if WindowEnvironment.isStageManagerActive {
@@ -239,12 +251,13 @@ class LayoutManager {
         UserDefaults.standard.bool(forKey: Self.privacyHideTitlesPrefKey)
     }
 
-    private func captureWindows(screens: [CGRect]) -> [WindowSnapshot] {
-        Log.info("capture screens: \(DisplayConfiguration.diagnosticScreens())")
+    private func captureWindows(displays: DisplayLayout) -> [WindowSnapshot] {
+        let screens = displays.axFrames
+        Log.info("capture screens: \(DisplayConfiguration.diagnosticScreens(displays: displays))")
         let excluded = excludedBundleIDs
         var result: [WindowSnapshot] = []
         var regularApps = 0, excludedApps = 0, missingBundleID = 0, axFailures = 0
-        var available = 0, minimized = 0, fullscreen = 0, unreadableFrames = 0, tooSmall = 0
+        var available = 0, minimized = 0, fullscreen = 0, unreadableFrames = 0, tooSmall = 0, outsideScreens = 0
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
             regularApps += 1
             guard let bid = app.bundleIdentifier else { missingBundleID += 1; continue }
@@ -270,11 +283,8 @@ class LayoutManager {
                 // Pick the screen containing the window's CENTER, not the first intersecting one.
                 // Stops a window straddling two monitors from being assigned to whichever screen
                 // happens to be first in NSScreen.screens (order varies between launches).
-                let center = CGPoint(x: frame.midX, y: frame.midY)
-                let idx = screens.firstIndex(where: { $0.contains(center) })
-                    ?? screens.firstIndex(where: { $0.intersects(frame) })
-                    ?? 0
-                let screenFrame = screens[min(idx, screens.count - 1)]
+                guard let idx = Geometry.screenIndex(for: frame, in: screens) else { outsideScreens += 1; continue }
+                let screenFrame = screens[idx]
                 result.append(WindowSnapshot(
                     bundleID: bid,
                     windowTitle: title,
@@ -286,7 +296,7 @@ class LayoutManager {
         }
         let capturedByApp = Dictionary(grouping: result, by: \.bundleID)
             .map { "\($0.key):\($0.value.count)" }.sorted().joined(separator: ",")
-        Log.info("captureWindows: axTrusted=\(AXIsProcessTrusted()) regularApps=\(regularApps) excludedApps=\(excludedApps) missingBundleID=\(missingBundleID) axFailures=\(axFailures) available=\(available) minimized=\(minimized) fullscreen=\(fullscreen) unreadableFrames=\(unreadableFrames) tooSmall=\(tooSmall) captured=\(result.count) byApp=[\(capturedByApp)]")
+        Log.info("captureWindows: axTrusted=\(AXIsProcessTrusted()) regularApps=\(regularApps) excludedApps=\(excludedApps) missingBundleID=\(missingBundleID) axFailures=\(axFailures) available=\(available) minimized=\(minimized) fullscreen=\(fullscreen) unreadableFrames=\(unreadableFrames) tooSmall=\(tooSmall) outsideScreens=\(outsideScreens) captured=\(result.count) byApp=[\(capturedByApp)]")
         return result
     }
 
@@ -297,16 +307,21 @@ class LayoutManager {
     /// prove that the target was reached or that the frame remained there.
     private(set) var lastApplyMovedWindows = false
 
+    /// Saved windows consumed by matching but skipped because their display could not be resolved.
+    private(set) var lastPlacementUnresolvedCount = 0
+
     private func apply(profile: LayoutProfile) {
         lastApplyMovedWindows = false
+        lastPlacementUnresolvedCount = 0
         // Restoring requires AX. Without it AXUIElement* calls silently fail, the windows
         // don't move, but the caller flashes success — misleading. Bail explicitly.
         guard AXIsProcessTrusted() else {
             Log.warn("apply: skipped — Accessibility permission not granted")
             return
         }
-        let currentScreens = NSScreen.screens.map(\.frame)
-        Log.info("apply screens: \(DisplayConfiguration.diagnosticScreens())")
+        let displays = DisplayConfiguration.placementScreens()
+        let currentScreens = displays.axFrames
+        Log.info("apply screens: \(DisplayConfiguration.diagnosticScreens(displays: displays))")
         guard !currentScreens.isEmpty else {
             Log.warn("apply: skipped — no screens available")
             return
@@ -316,6 +331,9 @@ class LayoutManager {
         let regularApps = runningApps.filter { $0.activationPolicy == .regular }
         let regularBundleIDs = Set(regularApps.compactMap(\.bundleIdentifier))
         let savedByApp = Dictionary(grouping: profile.windows, by: \.bundleID)
+        if profile.placementVersion == nil {
+            Log.info("apply: legacy profile has no physical display identities; restoring only matching screen geometry; resave recommended")
+        }
         Log.info("apply: saved=\(profile.windows.count) apps=\(savedByApp.count) screens=\(currentScreens.count)")
         for bid in savedByApp.keys.sorted() {
             let status: String?
@@ -364,19 +382,23 @@ class LayoutManager {
                     continue
                 }
                 let s = pool.remove(at: i)
-                let si = min(s.screenIndex, currentScreens.count - 1)
-                let target = Geometry.clamp(
-                    Geometry.denormalize(s.normalizedFrame, in: currentScreens[si]),
-                    into: currentScreens[si]
-                )
-                let outcome = setFrame(of: window, to: target)
+                let placement: DisplayPlacement.Target
+                switch DisplayPlacement.target(snapshot: s, profile: profile, current: displays) {
+                case .success(let target): placement = target
+                case .failure(let reason):
+                    counts.placementUnresolved += 1
+                    lastPlacementUnresolvedCount += 1
+                    Log.warn("apply app=\(bid) pid=\(app.processIdentifier) windowIndex=\(windowIndex): placementUnresolved=\(reason.rawValue) savedScreenIndex=\(s.screenIndex)")
+                    continue
+                }
+                let outcome = setFrame(of: window, to: placement.frame)
                 counts.record(outcome)
                 if outcome.immediateChanged == true { lastApplyMovedWindows = true }
-                Log.info("apply app=\(bid) pid=\(app.processIdentifier) windowIndex=\(windowIndex) savedScreenIndex=\(s.screenIndex) targetScreenIndex=\(si): \(outcome.logDescription)")
+                Log.info("apply app=\(bid) pid=\(app.processIdentifier) windowIndex=\(windowIndex) savedScreenIndex=\(s.screenIndex) targetScreenIndex=\(placement.screenIndex) placement=\(placement.method): \(outcome.logDescription)")
             }
             Log.info("apply app=\(bid) pid=\(app.processIdentifier): \(counts.logDescription)")
         }
-        Log.info("apply complete: immediateFrameChangeObserved=\(lastApplyMovedWindows)")
+        Log.info("apply complete: immediateFrameChangeObserved=\(lastApplyMovedWindows) placementUnresolved=\(lastPlacementUnresolvedCount)")
     }
 
     // MARK: - AX helpers

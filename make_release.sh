@@ -64,6 +64,7 @@ SOURCES=(
   WindowLayout/Log.swift
   WindowLayout/Localization.swift
   WindowLayout/Geometry.swift
+  WindowLayout/DisplayPlacement.swift
   WindowLayout/WindowSnapshot.swift
   WindowLayout/ProfileFileStore.swift
   WindowLayout/DisplayProfile.swift

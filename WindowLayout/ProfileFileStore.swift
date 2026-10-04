@@ -12,6 +12,7 @@ enum ProfileFileStore {
         case invalidGeometry
         case invalidDate
         case invalidByteLimit
+        case invalidDisplayPlacement
 
         var errorDescription: String? {
             switch self {
@@ -21,6 +22,7 @@ enum ProfileFileStore {
             case .invalidGeometry: return L.s("В расположении записаны некорректные координаты окна или экрана.", "A profile contains invalid window or screen geometry.", "配置包含无效的窗口或屏幕坐标。")
             case .invalidDate: return L.s("В расположении записана некорректная дата.", "A profile contains an invalid date.", "配置包含无效日期。")
             case .invalidByteLimit: return L.s("Некорректное ограничение размера файла расположений.", "The profiles byte limit is invalid.", "布局文件的大小限制无效。")
+            case .invalidDisplayPlacement: return L.s("Некорректные или неподдерживаемые данные размещения по дисплеям.", "The profile contains invalid or unsupported display placement data.", "配置包含无效或不受支持的显示器位置数据。")
             }
         }
     }
@@ -92,6 +94,16 @@ enum ProfileFileStore {
         var ids = Set<UUID>()
         for profile in profiles {
             guard ids.insert(profile.id).inserted else { throw StoreError.duplicateProfileID }
+            if let version = profile.placementVersion {
+                guard version == LayoutProfile.currentPlacementVersion, let identities = profile.displayIdentities,
+                      identities.count == profile.screenFrames.count,
+                      profile.screenFrames.allSatisfy({ $0.width > 0 && $0.height > 0 }),
+                      profile.windows.allSatisfy({ profile.screenFrames.indices.contains($0.screenIndex) }) else {
+                    throw StoreError.invalidDisplayPlacement
+                }
+            } else if profile.displayIdentities != nil {
+                throw StoreError.invalidDisplayPlacement
+            }
             for date in [profile.capturedAt, profile.modifiedAt, profile.deletedAt].compactMap({ $0 }) {
                 guard date.timeIntervalSinceReferenceDate.isFinite else { throw StoreError.invalidDate }
             }
@@ -105,7 +117,7 @@ enum ProfileFileStore {
     }
 
     private static func validate(_ frame: CGRect) throws {
-        guard [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height].allSatisfy(\.isFinite),
+        guard [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height, frame.maxX, frame.maxY].allSatisfy(\.isFinite),
               frame.size.width >= 0, frame.size.height >= 0 else { throw StoreError.invalidGeometry }
     }
 

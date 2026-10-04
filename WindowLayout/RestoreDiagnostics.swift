@@ -51,6 +51,7 @@ struct RestoreAppCounts {
     var titleMismatch = 0
     var noRemainingSaved = 0
     var attempted = 0
+    var placementUnresolved = 0
     var immediateChanged = 0
     var immediateTargetMismatch = 0
     var immediateReadbackMissing = 0
@@ -67,7 +68,7 @@ struct RestoreAppCounts {
     var logDescription: String {
         "saved=\(saved) available=\(available) minimized=\(minimized) fullscreen=\(fullscreen) "
             + "titleMismatch=\(titleMismatch) noRemainingSaved=\(noRemainingSaved) attempted=\(attempted) unconsumedSaved=\(saved - attempted) "
-            + "setterFailures=\(setterFailures) immediateChanged=\(immediateChanged) "
+            + "placementUnresolved=\(placementUnresolved) setterFailures=\(setterFailures) immediateChanged=\(immediateChanged) "
             + "immediateTargetMismatch=\(immediateTargetMismatch) immediateReadbackMissing=\(immediateReadbackMissing)"
     }
 }

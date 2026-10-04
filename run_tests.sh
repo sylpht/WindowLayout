@@ -10,6 +10,7 @@ swiftc \
   WindowLayout/Log.swift \
   WindowLayout/Localization.swift \
   WindowLayout/Geometry.swift \
+  WindowLayout/DisplayPlacement.swift \
   WindowLayout/WindowSnapshot.swift \
   WindowLayout/ProfileFileStore.swift \
   WindowLayout/DisplayProfile.swift \
@@ -39,6 +40,7 @@ swiftc \
   WindowLayout/Log.swift \
   WindowLayout/Localization.swift \
   WindowLayout/Geometry.swift \
+  WindowLayout/DisplayPlacement.swift \
   WindowLayout/WindowSnapshot.swift \
   WindowLayout/ProfileFileStore.swift \
   WindowLayout/DisplayProfile.swift \
@@ -48,5 +50,15 @@ swiftc \
   Tests/storage_safety/main.swift \
   -sdk "$SDK" -target arm64-apple-macos13.0 -o StorageSafetyRunner
 ./StorageSafetyRunner
+
+swiftc \
+  WindowLayout/Geometry.swift \
+  WindowLayout/WindowSnapshot.swift \
+  WindowLayout/DisplayPlacement.swift \
+  WindowLayout/ProfileFileStore.swift \
+  WindowLayout/iCloudSync.swift \
+  Tests/display_placement.swift \
+  -sdk "$SDK" -target arm64-apple-macos13.0 -o DisplayPlacementRunner
+./DisplayPlacementRunner
 
 bash Tests/release_tooling.sh
