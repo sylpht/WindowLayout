@@ -153,6 +153,7 @@ class LayoutManager {
     }
 
     func restoreLayout(id: UUID) {
+        NotificationCenter.default.post(name: Self.willRestoreManuallyNotification, object: nil)
         lastApplyMovedWindows = false
         lastPlacementUnresolvedCount = 0
         guard let profile = profile(id: id) else {
@@ -160,6 +161,16 @@ class LayoutManager {
             return
         }
         apply(profile: profile)
+    }
+
+    static let willRestoreManuallyNotification = Notification.Name("WindowLayoutWillRestoreManually")
+
+    /// The hotkey is an explicit request, just like selecting a saved layout in the menu.
+    func restoreMostRecentLayout() {
+        NotificationCenter.default.post(name: Self.willRestoreManuallyNotification, object: nil)
+        lastApplyMovedWindows = false
+        lastPlacementUnresolvedCount = 0
+        restoreForCurrentSetup(action: "manualRestore")
     }
 
     /// Restore the best match for the current display configuration:
@@ -173,6 +184,10 @@ class LayoutManager {
             Log.info("autoRestore skipped: Stage Manager is active")
             return
         }
+        restoreForCurrentSetup(action: "autoRestore")
+    }
+
+    private func restoreForCurrentSetup(action: String) {
         let sigs = Set(DisplayConfiguration.current().matchingSignatures)
         // Filter tombstones — a deleted profile would otherwise out-rank a real one
         // (more recent capturedAt) and silently make autoRestore a no-op.
@@ -184,10 +199,10 @@ class LayoutManager {
         let autoSnapshot = forSetup.first { $0.isAutoSnapshot == true }
         if let p = userSaved.first ?? autoSnapshot {
             let kind = p.isAutoSnapshot == true ? "auto-snapshot" : "user profile"
-            Log.info("autoRestore using \(kind) '\(p.name)' (\(p.windows.count) windows)")
+            Log.info("\(action) using \(kind) '\(p.name)' (\(p.windows.count) windows)")
             apply(profile: p)
         } else {
-            Log.info("autoRestore: no profile for current display setup (\(sigs.first ?? "?"))")
+            Log.info("\(action): no profile for current display setup (\(sigs.first ?? "?"))")
         }
     }
 

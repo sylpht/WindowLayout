@@ -496,6 +496,10 @@ class StatusBarController: NSObject, NSMenuDelegate {
         guard let idString = sender.representedObject as? String,
               let id = UUID(uuidString: idString) else { return }
         LayoutManager.shared.restoreLayout(id: id)
+        if LayoutManager.shared.lastPlacementUnresolvedCount > 0 {
+            showPlacementWarning(count: LayoutManager.shared.lastPlacementUnresolvedCount)
+            return
+        }
         // Same gate as the hotkey path — don't claim success when AX is denied or
         // every captured app has since quit (nothing to move).
         if LayoutManager.shared.lastApplyMovedWindows {
@@ -561,6 +565,21 @@ class StatusBarController: NSObject, NSMenuDelegate {
             "Changes were not saved. Check access to the layouts file and free disk space. If the file is damaged, restore a backup and restart WindowLayout.",
             "更改未保存。请检查布局文件的访问权限和磁盘可用空间。如果文件已损坏，请从备份恢复并重新启动 WindowLayout。"
         ) + "\n\n" + error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L.s("Закрыть", "Close", "关闭"))
+        alert.runModal()
+    }
+
+    func showPlacementWarning(count: Int) {
+        guard count > 0 else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = L.s("Часть окон не восстановлена", "Some windows were not restored", "部分窗口未还原")
+        alert.informativeText = L.s(
+            "Не удалось надёжно определить монитор для \(count) окон. Проверь подключение мониторов. Для старого расположения расставь окна вручную и сохрани новое. Одинаковые мониторы без разных серийных номеров могут по-прежнему требовать ручного размещения.",
+            "Couldn't reliably identify a target monitor for \(count) windows. Check the connected monitors. For an older layout, arrange the windows and save a new layout. Identical monitors without unique serial numbers may still need manual placement.",
+            "无法可靠地确定 \(count) 个窗口的目标显示器。请检查已连接的显示器。对于旧布局，请手动排列窗口并保存新布局。没有唯一序列号的相同显示器可能仍需手动排列。"
+        )
         alert.alertStyle = .warning
         alert.addButton(withTitle: L.s("Закрыть", "Close", "关闭"))
         alert.runModal()

@@ -122,4 +122,22 @@ func runRestoreSchedulerTests(_ test: (String, () -> Bool) -> Void) {
         f.jobs.forEach { $0.action() }
         return f.restores == 1 && f.attempts.isEmpty
     }
+    test("Restore scheduler — explicit manual request uses its own callback and cancels automatic retries") {
+        var automatic = 0, manual = 0
+        var jobs: [() -> Void] = []
+        let scheduler = RestoreScheduler(isEnabled: { true }, currentSignature: { "display-A" },
+                                         restore: { automatic += 1 }, manualRestore: { manual += 1 },
+                                         enqueue: { _, action in jobs.append(action); return {} })
+        scheduler.schedule(for: "display-A")
+        scheduler.restoreManually()
+        jobs.forEach { $0() }
+        return automatic == 0 && manual == 1
+    }
+    test("Restore scheduler — manual callback remains available when automatic callback is suppressed") {
+        var manual = 0, automatic = 0
+        let scheduler = RestoreScheduler(isEnabled: { false }, currentSignature: { "display-A" },
+                                         restore: { automatic += 1 }, manualRestore: { manual += 1 })
+        scheduler.restoreManually()
+        return manual == 1 && automatic == 0
+    }
 }
