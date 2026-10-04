@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Schedule automatic restoration after restart and system wake even when the display
+  signature is unchanged; cancel pending work before sleep and on Accessibility revocation.
 - Preserve local and cloud profile files when reading, validation or writing fails;
   apply local changes only after an owner-only atomic write succeeds and report errors in the UI.
 - Merge the latest cloud replica for every queued write, reject stale sync results,

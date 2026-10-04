@@ -1,6 +1,6 @@
 import Foundation
 
-private final class RestoreSchedulerFixture {
+final class RestoreSchedulerFixture {
     final class Job {
         let delay: TimeInterval
         let action: () -> Void
@@ -13,6 +13,7 @@ private final class RestoreSchedulerFixture {
     }
 
     var enabled = true
+    var trusted = true
     var signature = "display-A"
     var date = Date(timeIntervalSince1970: 100)
     var jobs: [Job] = []

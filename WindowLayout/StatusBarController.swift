@@ -112,7 +112,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
         let stageActive = WindowEnvironment.isStageManagerActive
         let auto = action(
-            L.s("Автовосстановление при подключении", "Auto-restore on reconnect", "重新连接时自动还原"),
+            L.s("Автовосстановление окон", "Automatic window restore", "自动还原窗口"),
             symbol: "display.and.arrow.down",
             sel: #selector(toggleAutoRestore)
         )

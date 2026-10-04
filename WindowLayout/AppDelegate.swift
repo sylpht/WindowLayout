@@ -15,13 +15,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         isEnabled: { UserDefaults.standard.bool(forKey: "autoRestore") },
         currentSignature: { DisplayConfiguration.current().signature },
         restore: { LayoutManager.shared.autoRestore() },
-        onScheduled: { signature in
-            Log.info("Auto-restore scheduled: reason=display-change, signature=\(signature)")
+        onScheduled: { signature, trigger in
+            Log.info("Auto-restore scheduled: reason=\(trigger.rawValue), signature=\(signature)")
         },
         onAttempt: { attempt in
             let elapsed = String(format: "%.3f", attempt.elapsed)
-            Log.info("Auto-restore attempt \(attempt.number)/3: delay=\(attempt.delay)s, elapsed=\(elapsed)s, scheduledSignature=\(attempt.scheduledSignature), currentSignature=\(attempt.currentSignature)")
+            Log.info("Auto-restore attempt \(attempt.number)/3: reason=\(attempt.trigger.rawValue), delay=\(attempt.delay)s, elapsed=\(elapsed)s, scheduledSignature=\(attempt.scheduledSignature), currentSignature=\(attempt.currentSignature)")
         }
+    )
+    private lazy var restoreLifecycle = RestoreLifecycle(
+        scheduler: restoreScheduler,
+        currentSignature: { DisplayConfiguration.current().signature }
     )
     /// Track signature, not just count — hot-swapping one display for another
     /// keeps the count the same but produces a different signature, and the user
@@ -47,6 +51,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         installDisplayReconfigurationCallback()
         registerGlobalHotkeys()
         startAXPolling()
+        restoreLifecycle.start(isFirstLaunch: isFirstLaunch)
 
         if isFirstLaunch {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -108,7 +113,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // signature, so a pure resolution change with no saved layout is a free no-op.
             guard signatureChanged else { return }
             Log.info("Display signature changed: \(oldSig) → \(newSig)")
-            self.restoreScheduler.schedule(for: newSig)
+            self.restoreLifecycle.displayDidChange(signature: newSig)
         }
     }
 
@@ -154,6 +159,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.lastAXState = current
                 Log.info("Accessibility permission changed: \(current ? "granted" : "revoked")")
                 self.statusBarController?.refreshMenu()
+                self.restoreLifecycle.accessibilityDidChange(trusted: current)
             }
         }
     }
@@ -161,7 +167,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Global hotkeys
 
     func applicationWillTerminate(_ notification: Notification) {
-        restoreScheduler.cancelPending()
+        restoreLifecycle.shutdown()
+        axPollTimer?.invalidate()
         if let observer = autoRestorePreferenceObserver {
             NotificationCenter.default.removeObserver(observer)
         }

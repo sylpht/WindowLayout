@@ -70,6 +70,7 @@ SOURCES=(
   WindowLayout/iCloudSync.swift
   WindowLayout/RestoreDiagnostics.swift
   WindowLayout/RestoreScheduler.swift
+  WindowLayout/RestoreLifecycle.swift
   WindowLayout/LayoutManager.swift
   WindowLayout/HotKeyManager.swift
   WindowLayout/OnboardingWindowController.swift
