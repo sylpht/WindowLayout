@@ -24,6 +24,7 @@ final class RestoreScheduler {
     private let isEnabled: () -> Bool
     private let currentSignature: () -> String
     private let restore: () -> Void
+    private let manualRestore: () -> Void
     private let enqueue: Enqueue
     private let now: () -> Date
     private let onScheduled: (String, Trigger) -> Void
@@ -33,6 +34,7 @@ final class RestoreScheduler {
 
     init(isEnabled: @escaping () -> Bool, currentSignature: @escaping () -> String,
          restore: @escaping () -> Void,
+         manualRestore: (() -> Void)? = nil,
          enqueue: @escaping Enqueue = { delay, action in
              let work = DispatchWorkItem(block: action)
              DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -43,6 +45,7 @@ final class RestoreScheduler {
         self.isEnabled = isEnabled
         self.currentSignature = currentSignature
         self.restore = restore
+        self.manualRestore = manualRestore ?? restore
         self.enqueue = enqueue
         self.now = now
         self.onScheduled = onScheduled
@@ -86,6 +89,7 @@ final class RestoreScheduler {
     }
 
     func restoreManually() {
-        restore()
+        cancelPending()
+        manualRestore()
     }
 }

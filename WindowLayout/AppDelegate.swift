@@ -11,10 +11,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// — otherwise each language switch leaks an observer bound to a dead window.
     private var onboardingCloseObserver: NSObjectProtocol?
     private var autoRestorePreferenceObserver: NSObjectProtocol?
+    private var manualRestoreObserver: NSObjectProtocol?
     private lazy var restoreScheduler = RestoreScheduler(
         isEnabled: { UserDefaults.standard.bool(forKey: "autoRestore") },
         currentSignature: { DisplayConfiguration.current().signature },
         restore: { LayoutManager.shared.autoRestore() },
+        manualRestore: { LayoutManager.shared.restoreMostRecentLayout() },
         onScheduled: { signature, trigger in
             Log.info("Auto-restore scheduled: reason=\(trigger.rawValue), signature=\(signature)")
         },
@@ -118,6 +120,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func observeAutoRestorePreference() {
+        manualRestoreObserver = NotificationCenter.default.addObserver(
+            forName: LayoutManager.willRestoreManuallyNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.restoreScheduler.cancelPending()
+        }
         autoRestorePreferenceObserver = NotificationCenter.default.addObserver(
             forName: RestoreScheduler.preferenceDidChangeNotification,
             object: nil, queue: .main
@@ -172,6 +180,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = autoRestorePreferenceObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = manualRestoreObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         // Drain any in-flight iCloud push before termination — saving a layout then
         // quitting immediately could otherwise lose the push if the process gets killed
         // before the async closure runs. macOS gives apps ~5s here, so a short barrier
@@ -212,6 +223,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             modifiers: modCmdShiftOpt
         ) { [weak self] in
             self?.restoreScheduler.restoreManually()
+            if LayoutManager.shared.lastPlacementUnresolvedCount > 0 {
+                self?.statusBarController?.showPlacementWarning(count: LayoutManager.shared.lastPlacementUnresolvedCount)
+                return
+            }
             // Only flash if apply actually moved something (AX granted, profile matched).
             if LayoutManager.shared.lastApplyMovedWindows {
                 self?.statusBarController?.flashIconSuccess()

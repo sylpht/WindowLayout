@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Route the restore hotkey through the same explicit manual policy as the menu;
+  manual requests remain available with Stage Manager and supersede automatic retries.
 - Schedule automatic restoration after restart and system wake even when the display
   signature is unchanged; cancel pending work before sleep and on Accessibility revocation.
 - Preserve local and cloud profile files when reading, validation or writing fails;
