@@ -1,6 +1,7 @@
 import AppKit
 import CoreFoundation
 import CoreGraphics
+import ColorSync
 
 /// Stage Manager / Mission Control state. macOS 13+ Stage Manager auto-arranges windows
 /// in a sidebar group; restoring window positions while it's active fights the OS.
@@ -34,10 +35,10 @@ struct DisplayConfiguration {
         signature == legacySignature ? [signature] : [signature, legacySignature]
     }
 
-    static func current() -> DisplayConfiguration {
+    static func current(screens: [NSScreen] = NSScreen.screens) -> DisplayConfiguration {
         let key = NSDeviceDescriptionKey("NSScreenNumber")
 
-        let canonical = NSScreen.screens.compactMap { screen -> String? in
+        let canonical = screens.compactMap { screen -> String? in
             guard let cgID = screen.deviceDescription[key] as? CGDirectDisplayID else { return nil }
             let vendor = CGDisplayVendorNumber(cgID)
             let model = CGDisplayModelNumber(cgID)
@@ -53,7 +54,7 @@ struct DisplayConfiguration {
             return "\(vendor):\(model):\(serial):\(w)x\(h)"
         }.sorted()
 
-        let legacy = NSScreen.screens.compactMap { screen -> String? in
+        let legacy = screens.compactMap { screen -> String? in
             guard let cgID = screen.deviceDescription[key] as? CGDirectDisplayID else { return nil }
             let serial = CGDisplaySerialNumber(cgID)
             let model = CGDisplayModelNumber(cgID)
@@ -68,6 +69,19 @@ struct DisplayConfiguration {
             signature: canonical.joined(separator: "|"),
             legacySignature: legacy.joined(separator: "|")
         )
+    }
+
+    static func placementScreens(screens: [NSScreen] = NSScreen.screens) -> DisplayLayout {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        let identities = screens.map { screen -> DisplayIdentity? in
+            guard let id = screen.deviceDescription[key] as? CGDirectDisplayID else { return nil }
+            let uuid = CGDisplayCreateUUIDFromDisplayID(id).map {
+                CFUUIDCreateString(nil, $0.takeRetainedValue()) as String
+            }
+            return DisplayIdentity(uuid: uuid, vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id),
+                                   serial: CGDisplaySerialNumber(id), isBuiltin: CGDisplayIsBuiltin(id) != 0)
+        }
+        return DisplayLayout(appKitFrames: screens.map(\.frame), identities: identities)
     }
 
     static func friendlyName() -> String {
@@ -96,17 +110,17 @@ struct DisplayConfiguration {
 
     /// Preserve array order in diagnostics: the sorted signature cannot show
     /// which physical display a saved screenIndex referred to at capture time.
-    static func diagnosticScreens() -> String {
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        return NSScreen.screens.enumerated().map { index, screen in
+    static func diagnosticScreens(displays: DisplayLayout = placementScreens()) -> String {
+        let axFrames = displays.axFrames
+        return displays.appKitFrames.enumerated().map { index, frame in
             let identity: String
-            if let id = screen.deviceDescription[key] as? CGDirectDisplayID {
-                identity = "\(CGDisplayVendorNumber(id)):\(CGDisplayModelNumber(id)):\(CGDisplaySerialNumber(id)) builtin=\(CGDisplayIsBuiltin(id) != 0)"
+            if displays.identities.indices.contains(index), let id = displays.identities[index] {
+                identity = "\(id.hardwareKey) uuid=\(id.validUUID ?? "unavailable")"
             } else {
                 identity = "unavailable"
             }
-            let f = screen.frame
-            return "index=\(index) identity=\(identity) appKitFrame=[\(f.origin.x),\(f.origin.y),\(f.width),\(f.height)]"
+            let f = frame, ax = axFrames[index]
+            return "index=\(index) identity=\(identity) appKitFrame=[\(f.origin.x),\(f.origin.y),\(f.width),\(f.height)] axFrame=[\(ax.origin.x),\(ax.origin.y),\(ax.width),\(ax.height)]"
         }.joined(separator: " | ")
     }
 }
