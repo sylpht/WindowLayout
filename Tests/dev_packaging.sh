@@ -120,6 +120,9 @@ case "$name" in
     rm)
         args=()
         for arg in "$@"; do
+            if [ "$arg" = /Applications/WindowLayout.app ] \
+                && [ "${DEV_TEST_EXIT_POLLS:-0}" != 0 ] \
+                && [ ! -e "$DEV_TEST_CASE/old-process-exited" ]; then exit 104; fi
             mapped=$(map_path "$arg")
             case "$mapped" in
                 /*) [[ "$mapped" == "$DEV_TEST_CASE/"* ]] || exit 101 ;;
@@ -128,8 +131,26 @@ case "$name" in
         done
         /bin/rm "${args[@]}"
         ;;
-    pkill|open|sleep) printf '%s\n' "$name" >> "$DEV_TEST_CASE/lifecycle" ;;
-    pgrep) printf '%s\n' "$name" >> "$DEV_TEST_CASE/lifecycle"; printf '12345\n' ;;
+    pkill|sleep) printf '%s\n' "$name" >> "$DEV_TEST_CASE/lifecycle" ;;
+    open)
+        printf '%s\n' "$name" >> "$DEV_TEST_CASE/lifecycle"
+        touch "$DEV_TEST_CASE/new-process-started"
+        ;;
+    pgrep)
+        printf '%s\n' "$name" >> "$DEV_TEST_CASE/lifecycle"
+        [ "${DEV_TEST_FAIL_PROCESS_QUERY:-0}" != 1 ] || exit 2
+        if [ -e "$DEV_TEST_CASE/new-process-started" ]; then printf '23456\n'; exit 0; fi
+        polls=0
+        [ ! -f "$DEV_TEST_CASE/exit-polls" ] || polls=$(cat "$DEV_TEST_CASE/exit-polls")
+        polls=$((polls + 1))
+        printf '%s\n' "$polls" > "$DEV_TEST_CASE/exit-polls"
+        if [ "${DEV_TEST_EXIT_POLLS:-0}" = -1 ] || [ "$polls" -le "${DEV_TEST_EXIT_POLLS:-0}" ]; then
+            printf '12345\n'
+            exit 0
+        fi
+        touch "$DEV_TEST_CASE/old-process-exited"
+        exit 1
+        ;;
     *) exit 102 ;;
 esac
 STUB
@@ -146,6 +167,8 @@ run_script() (
     PATH="$FIXTURE/bin:$PATH" DEV_TEST_CASE="$FIXTURE" \
         WL_SIGN_IDENTITY="${TEST_IDENTITY:--}" \
         DEV_TEST_OFFLINE="${OFFLINE:-0}" \
+        DEV_TEST_EXIT_POLLS="${EXIT_POLLS:-0}" \
+        DEV_TEST_FAIL_PROCESS_QUERY="${FAIL_PROCESS_QUERY:-0}" \
         DEV_TEST_FAIL_SIGN="${FAIL_SIGN:-0}" \
         DEV_TEST_FAIL_IMAGE_VERIFY="${FAIL_IMAGE_VERIFY:-0}" \
         DEV_TEST_TAMPER_IMAGE="${TAMPER_IMAGE:-0}" \
@@ -266,9 +289,42 @@ sign_failure() {
 
 default_install() {
     fixture || return 1
+    EXIT_POLLS=5
     run_script build.sh || return 1
     [ -f "$FIXTURE/Applications/WindowLayout.app/Contents/_CodeSignature/identity" ] \
-        && grep -q '^pkill$' "$FIXTURE/lifecycle" && grep -q '^open$' "$FIXTURE/lifecycle"
+        && grep -q '^pkill$' "$FIXTURE/lifecycle" && grep -q '^open$' "$FIXTURE/lifecycle" \
+        && [ -e "$FIXTURE/old-process-exited" ]
+}
+
+termination_timeout() {
+    fixture || return 1
+    EXIT_POLLS=-1
+    mkdir -p "$FIXTURE/Applications/WindowLayout.app"
+    printf 'installed app\n' > "$FIXTURE/Applications/WindowLayout.app/marker"
+    if run_script build.sh; then return 1; fi
+    [ "$(cat "$FIXTURE/Applications/WindowLayout.app/marker")" = 'installed app' ] \
+        && ! grep -q '^open$' "$FIXTURE/lifecycle" \
+        && ! grep -q '^rm -rf /Applications/' "$FIXTURE/calls" \
+        && [ "$(cat "$FIXTURE/exit-polls")" -gt 1 ] \
+        && [ -z "$(ls -A "$FIXTURE/tmp")" ]
+}
+
+install_without_running_app() {
+    fixture || return 1
+    run_script build.sh || return 1
+    [ -f "$FIXTURE/Applications/WindowLayout.app/Contents/_CodeSignature/identity" ] \
+        && ! grep -q '^pkill$' "$FIXTURE/lifecycle" && grep -q '^open$' "$FIXTURE/lifecycle"
+}
+
+process_query_failure() {
+    fixture || return 1
+    FAIL_PROCESS_QUERY=1
+    mkdir -p "$FIXTURE/Applications/WindowLayout.app"
+    printf 'installed app\n' > "$FIXTURE/Applications/WindowLayout.app/marker"
+    if run_script build.sh; then return 1; fi
+    [ "$(cat "$FIXTURE/Applications/WindowLayout.app/marker")" = 'installed app' ] \
+        && ! grep -q '^pkill$\|^open$' "$FIXTURE/lifecycle" \
+        && ! grep -q '^rm -rf /Applications/' "$FIXTURE/calls"
 }
 
 invalid_option() {
@@ -306,7 +362,10 @@ test_case 'DMG integrity failure preserves prior output and cleans staging' reje
 test_case 'tampered app inside DMG is rejected and cleaned up' reject_image app
 test_case 'DMG with a different signed payload is rejected' reject_image signature
 test_case 'signing failure preserves old dev app and leaves running apps alone' sign_failure
-test_case 'default build still installs and launches through isolated stubs' default_install
+test_case 'default build waits for slow termination before installing and launching' default_install
+test_case 'termination timeout preserves the installed app and skips launch' termination_timeout
+test_case 'default build installs and launches when no old process is running' install_without_running_app
+test_case 'process query errors cancel installation before changing the installed app' process_query_failure
 test_case 'unknown build option fails before tools or lifecycle changes' invalid_option
 printf '\nDev packaging: %s passed, %s failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" = 0 ]

@@ -114,8 +114,29 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 echo "✓ Signed app: $APP"
 if [ "$INSTALL" = 0 ]; then exit 0; fi
 
-pkill -x WindowLayout 2>/dev/null || true
-sleep 0.3
+# Termination can drain pending iCloud writes. Never replace the installed bundle
+# while that process is still running, and leave it intact if it will not exit.
+windowlayout_is_running() {
+    local status=0
+    pgrep -x WindowLayout >/dev/null || status=$?
+    case "$status" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) echo 'Could not check whether WindowLayout is running; installation cancelled.' >&2
+           exit "$status" ;;
+    esac
+}
+if windowlayout_is_running; then
+    pkill -TERM -x WindowLayout 2>/dev/null || true
+    for ((attempt=0; attempt<50; attempt++)); do
+        if ! windowlayout_is_running; then break; fi
+        sleep 0.2
+    done
+    if windowlayout_is_running; then
+        echo 'Timed out waiting for WindowLayout to exit; the installed app was not changed.' >&2
+        exit 1
+    fi
+fi
 
 echo "▶ Installing to /Applications…"
 rm -rf /Applications/WindowLayout.app

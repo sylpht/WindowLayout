@@ -15,6 +15,10 @@ cd WindowLayout
 
 Requirements: macOS 13+, Xcode Command Line Tools.
 
+The default build waits up to 10 seconds for the old WindowLayout process to exit
+before replacing the installed app. If it cannot confirm exit, installation stops
+and the installed copy remains intact. Use `--no-install` to leave running apps alone.
+
 ## Cutting a release (notarised .dmg)
 
 `build.sh` uses `WL_SIGN_IDENTITY` from the environment first, then
